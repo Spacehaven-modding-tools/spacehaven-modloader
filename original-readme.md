@@ -2,6 +2,7 @@
 
 This is an unofficial modding tool for [Space Haven by Bugbyte](http://bugbyte.fi/spacehaven/), an early-alpha spaceship colony sim.
 
+It is **not associated with Bugbyte or Space Haven in any way** other than that it makes some modding possible for the game. This tool is intended to be a sneak peek at what modding might be able to do, and in the future it will be replaced by official mod support.
 
 
 ## Getting Started
