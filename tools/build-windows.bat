@@ -20,3 +20,4 @@ IF EXIST "%ProgramFiles%\7-Zip\7z.exe" (
 ECHO.
 ECHO Created Files for Distribution:
 dir /B .\dist\*.zip .\dist\*.7z
+ECHO.
