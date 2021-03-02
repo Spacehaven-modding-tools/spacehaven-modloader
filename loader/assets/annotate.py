@@ -59,14 +59,27 @@ def annotate(corePath):
         objectInfo = element.find("objectInfo")
         if objectInfo is not None:
             element.set("_annotation", nameOf(objectInfo))
+            ElementName[mid] = element.get("_annotation")
         # Keep track of links, inverted.
         linked = element.find("linked")
         for link in linked.findall("l"):
             linkid = link.get("id")
             if linkid is not None and linkid not in ElementLink:
                 ElementLink[linkid] = []
-            ElementLink[linkid].append(mid)
+            if mid not in ElementLink[linkid]:
+                ElementLink[linkid].append(mid)
 
+    # Second pass, give linked-by reference list.
+    for element in ElementRoot:
+        mid = element.get("mid")
+        if mid in ElementLink:
+            s=""
+            for link in ElementLink[mid]:
+                s = s + link
+                if link in ElementName:
+                    s = s + " " + ElementName[link]
+                s = s + ";"
+            element.set("_linkedBy", s)
 
 
     # Annotate basic products
@@ -270,7 +283,7 @@ def annotate(corePath):
     def saveCSV(root, filename, fieldnames ):
         name = os.path.join(corePath, filename )
         with open(name, 'w', encoding='UTF8', newline='' ) as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter=';', quotechar='"' )
+            writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter=';', quotechar='"', quoting=csv.QUOTE_ALL)
             writer.writeheader()
             for e in root:
                 row = {}
@@ -283,7 +296,7 @@ def annotate(corePath):
 
     # Write reference CSV files.
     ui.log.log("  saving CSV...")
-    saveCSV(ElementRoot,"haven_Element.csv", ["mid","_annotation"]  )
+    saveCSV(ElementRoot,"haven_Element.csv", ["mid","_annotation","_linkedBy"]  )
     saveCSV(ProductRoot,"haven_Product.csv", ["eid", "type", "_annotation"])
     saveCSV(ItemRoot,"haven_Item.csv", ["mid","_annotation"])
     saveCSV(TechRoot,"haven_Tech.csv", ["id","_annotation"])

@@ -434,7 +434,8 @@ class Window(Frame):
             ui.log.log("  Error during annotation!")
             ui.log.log(repr(e))
         
-        ui.launcher.open(os.path.join(corePath, 'library'))
+        # ui.launcher.open(os.path.join(corePath, 'library'))
+        ui.launcher.open(corePath)
     
     def mods_enabled(self):
         return DatabaseHandler.getActiveMods()
