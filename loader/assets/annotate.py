@@ -80,7 +80,8 @@ def annotate(corePath):
             element.set("_annotation", name)
         elementNames[element.get("eid")] = name
     
-    for item in haven.find("Item"):
+    ItemRoot = haven.find("Item")
+    for item in ItemRoot:
         name = nameOf(item) or item.get("elementType") or ""        
         if name:
             item.set("_annotation", name)
@@ -258,8 +259,39 @@ def annotate(corePath):
 
 
     # Finish, save annotated XML.
+    ui.log.log("  saving XML...")
     saveXml(haven,"haven_annotated.xml")
     saveXml(ElementRoot,"haven_Element.xml")
     saveXml(ProductRoot,"haven_Product.xml")
     saveXml(TechRoot,"haven_Tech.xml")
     saveXml(TechTreeRoot,"haven_TechTree.xml")
+
+
+    def saveCSV(root, filename, fieldnames ):
+        name = os.path.join(corePath, filename )
+        with open(name, 'w', encoding='UTF8', newline='' ) as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter=';', quotechar='"' )
+            writer.writeheader()
+            for e in root:
+                row = {}
+                for field in fieldnames:
+                    s = e.get(field) or ""
+                    row[field] = s
+                writer.writerow(row)
+        ui.log.log("  Wrote {}".format(filename))
+
+
+    # Write reference CSV files.
+    ui.log.log("  saving CSV...")
+    saveCSV(ElementRoot,"haven_Element.csv", ["mid","_annotation"]  )
+    saveCSV(ProductRoot,"haven_Product.csv", ["eid", "type", "_annotation"])
+    saveCSV(ItemRoot,"haven_Item.csv", ["mid","_annotation"])
+    saveCSV(TechRoot,"haven_Tech.csv", ["id","_annotation"])
+    for tt in TechTreeRoot:
+        ttid = tt.get("id") or "0"
+        items = tt.find("items")
+        saveCSV(items,"haven_TechTree_{}_items.csv".format(ttid), ["tid","_annotation"])
+        links = tt.find("links")
+        saveCSV(links,"haven_TechTree_{}_links.csv".format(ttid), ["fromId","_fromName","toId","_toName"])
+
+    ui.log.log("  Annotation Finished.")
