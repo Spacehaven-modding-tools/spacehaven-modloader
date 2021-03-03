@@ -26,3 +26,4 @@ typed-ast==1.4.1
 unittest2==1.1.0
 wrapt==1.12.1
 steamfiles==0.1.4
+xmltodict==0.12.0

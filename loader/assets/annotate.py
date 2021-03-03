@@ -7,12 +7,72 @@ import ui.log
 
 import csv
 
+import xmltodict
 
-def annotate(corePath):
+def annotate(corePath:str, bOutputXML = True, bOutputCSV=True, bOutputDependencies=True, bOutputPythonTree=True, bOutputLuaTree=True):
     """Generate an annotated Space Haven library"""
 
+    # These maintain a two-way relationship between all XML elements and file dictionary entries.
+    xml_link_dict = {}
+    dict_link_xml = {}
+
+    # Parse an XML file into an ElementTree and convert into a dictionary.
+    # Also back-references the dictionary elements to their XML elements.
+    def loadXML(filename):
+        et = ElementTree.parse(os.path.join(corePath, "library", filename), parser=XMLParser(recover=True))
+        d = xmltodict.parse(et)
+        return et, d
+
+    def saveXML(e,filename,suffix="_annotated"):
+        # path = os.path.join(corePath, "library", filename )
+        path = os.path.join(corePath, filename + suffix + ".xml")
+        t=type(e).__name__
+        et = 0-1j
+
+        n=None
+        s=""
+        i=-1
+        f=0.1234567890
+        a=[]
+        d={}
+
+        if "_Dictionary" == t or "Dictionary" == t:
+            s = xmltodict.unparse(e,pretty=True)
+            et = ElementTree.ElementTree(ElementTree.fromstring(e))
+        if "_Element" == t or "Element" == t:
+            et = ElementTree.ElementTree(ElementTree.fromstring(ElementTree.tostring(e, 'utf-8')))
+        elif "_String" == t or "String" == t:
+            et = ElementTree.ElementTree(ElementTree.fromstring(e))
+        elif "_ElementTree" == t or  "ElementTree" == t:
+            et = e
+        else:
+            ui.log.log("ERROR: Cannot write type '{}' as XML to '{}'.".format(t,path))
+            return
+        et.write(path)
+        ui.log.log("  Wrote {} XML to {}".format(filename, path))
+
+
+    # sets the key=value pair in the XML Dictionary, then sets the appropriate attribute in the linked XML Element.
+    def seta(xmlDict, key, value):
+        xmlDict["@"+key] = value
+
+    # quick shorthand.
+    def setann(xmlDict,value):
+        xmlDict["@_annotation"] = value
+
+
+    # Load XML files
+    havenxml, haven = loadXML("haven")
+    saveXML(havenxml.find("Element"),"haven_ElementTree")
+    saveXML(haven, haven.data["Element"],"haven_dictionay")
+
+
+    return
+
+
     texture_names = {}
-    local_texture_names = ElementTree.parse("textures_annotations.xml", parser=XMLParser(recover=True))
+    textureXML = ElementTree.parse(os.path.join(corePath, "library","textures_annotations.xml"), parser=XMLParser(recover=True))
+    local_texture_names = ElementTree.parse(os.path.join(corePath, "library","textures_annotations.xml"), parser=XMLParser(recover=True))
     for region in local_texture_names.findall(".//re[@n]"):
         if not region.get("_annotation"):
             continue
@@ -29,25 +89,82 @@ def annotate(corePath):
     annotatedPath = os.path.join(corePath, "library", "animations_annotated.xml")
     animations.write(annotatedPath)
     ui.log.log("  Wrote annotated animations to {}".format(annotatedPath))
+
+
+    ui.log.log("  Loading haven XML...")
+    havenxml = ElementTree.parse(os.path.join(corePath, "library", "haven"), parser=XMLParser(recover=True))
+    haven = xmltodict(havenxml)
+    havenxml = None
     
-    haven = ElementTree.parse(os.path.join(corePath, "library", "haven"), parser=XMLParser(recover=True))
-    texts = ElementTree.parse(os.path.join(corePath, "library", "texts"), parser=XMLParser(recover=True))
+    ui.log.log("  Loading texts XML...")
+    textsxml = ElementTree.parse(os.path.join(corePath, "library", "texts"), parser=XMLParser(recover=True))
+    texts = xmltodict(textsxml)
+    textsxml = None
 
     tids = {}
     # Load texts
+    ui.log.log("  Loading texts file...")
     for text in texts.getroot():
-        tids[text.get("id")] = text.find("EN").text
-    
-    def nameOf(element):
-        name = element.find("name")
-        if name is None:
-            return ""
+        tids[id] = text.find("EN").text
+        id = text.get("id")
+        tids[id] = text.find("EN").text
+        tname[id] = {}
+        tname[id]["tag"] = text.tag
 
-        tid = name.get("tid")
+    def nameOf(element):
+        e = element
+        name = element.find("name")
+        if name is not None:
+            e = name
+        else:
+            ui.log.log("  tid {} in {}".format(tid,e.tag))
+
+        # Make one last chance to search for name elsewhere
+        if tid is None:
+            tid = e.get("name")
+
         if tid is None:
             return ""
 
+        if tids[tid] is None:
+            return ""
+
         return tids[tid]
+
+    def saveCSV(root, filename, fieldnames ):
+        name = os.path.join(corePath, filename )
+        with open(name, 'w', encoding='UTF8', newline='' ) as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter=';', quotechar='"', quoting=csv.QUOTE_ALL)
+            writer.writeheader()
+            for e in root:
+                row = {}
+                for field in fieldnames:
+                    s = e.get(field) or ""
+                    row[field] = s
+                writer.writerow(row)
+        ui.log.log("  Wrote {}".format(filename))
+
+    def savePython(root, filename, fieldnames ):
+        print("foo")
+
+    def saveCSV(root, filename, fieldnames ):
+        print("bar")
+
+
+    if bOutputCSV:
+        ui.log.log("  Saving text as CSV...")
+    if bOutputPythonTree:
+        ui.log.log("  Saving text as Python...")
+    if bOutputLuaTree:
+        ui.log.log("  Saving text as Lua...")
+
+
+    # avoid fragmenting memory.
+    # this probably isn't strictly needed, but it reduces memory useage for me with no noticable lag.
+    gc.collect()
+
+
+
     
     ui.log.log("  annotate Element...")
     ElementRoot = haven.find("Element")
@@ -254,21 +371,6 @@ def annotate(corePath):
             TechName[id] = tech.get("_annotation")
 
 
-    def saveXml(e,filename):
-        path = os.path.join(corePath, "library", filename )
-        t=type(e).__name__
-        et={}
-        if "_Element" == t or "Element" == t:
-            et = ElementTree.ElementTree(ElementTree.fromstring(ElementTree.tostring(e, 'utf-8')))
-        elif "_String" == t or "String" == t:
-            et = ElementTree.ElementTree(ElementTree.fromstring(e))
-        elif "_ElementTree" == t or  "ElementTree" == t:
-            et = e
-        else:
-            ui.log.log("ERROR: Cannot write type '{}' as XML to '{}'.".format(t,path))
-            return
-        et.write(path)
-        ui.log.log("  Wrote annotated spacehaven XML to {}".format(path))
 
 
     # Finish, save annotated XML.
@@ -278,20 +380,6 @@ def annotate(corePath):
     saveXml(ProductRoot,"haven_Product.xml")
     saveXml(TechRoot,"haven_Tech.xml")
     saveXml(TechTreeRoot,"haven_TechTree.xml")
-
-
-    def saveCSV(root, filename, fieldnames ):
-        name = os.path.join(corePath, filename )
-        with open(name, 'w', encoding='UTF8', newline='' ) as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter=';', quotechar='"', quoting=csv.QUOTE_ALL)
-            writer.writeheader()
-            for e in root:
-                row = {}
-                for field in fieldnames:
-                    s = e.get(field) or ""
-                    row[field] = s
-                writer.writerow(row)
-        ui.log.log("  Wrote {}".format(filename))
 
 
     # Write reference CSV files.
