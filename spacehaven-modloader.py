@@ -430,10 +430,10 @@ class Window(Frame):
         ui.log.log(f"Annotating and putting files in {corePath}")
         try:
             loader.assets.annotate.annotate(corePath)
-        except Exception as e:
+        except Exception as exc:
             ui.log.log("  Error during annotation!")
-            ui.log.log(repr(e))
-        
+            ui.log.log(repr(exc))
+
         # ui.launcher.open(os.path.join(corePath, 'library'))
         ui.launcher.open(corePath)
     
