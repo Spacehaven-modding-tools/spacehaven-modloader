@@ -1,5 +1,6 @@
 
 import os
+import gc
 from xml.etree import ElementTree
 from lxml.etree import XMLParser
 import xmltodict
@@ -9,173 +10,98 @@ import ui.log
 import csv
 
 
-# Create the dictionary of tags and their keys.
-# Creates the definition of the structure, doesn't read any files.
-# Maybe this should be read from an XSD or other data file?
-# This helps build a database-like view of XML later, and is very fast.
-def __createDbKeyStructure():
-    """Create the dictionary of tags and their keys.
-    This builds a database-like view of SpaceHaven XML later, and is very fast.
-    Some tags have multiple possible children, or children of children that have the real elements, which complicates matters.
-    The ultimate structure will look something like:
-        {
-            __Filename__:"haven",
-            __RootTag__:"data",
-            Element:{me:"mid"},
-            Product:{product:"eid"},
-            Notes:{
-                stuff:{
-                    __id__:"id",
-                    {notes:"id"}
-                }
-            }
-            TechTree:[
-                {items:{i:"tid"}},
-                {
-                    links:{
-                        l:"",
-                        __foreign__:{
-                            fromId:["haven", "Tech"],
-                            toId:["haven", "Tech"]
-                        }
-                    }
-                }
-            ]
-        },
-        {
-            __Filename__:"texts",
-            __RootTag__:"t",
-            __all__:{EN:"__text__"}
-        }
-    """
 
-    # Create the entry in a given dictionary.  Makes things easier to read.
-    def __makeTagRef(container:dict,tag:str,child:any,attrib="",foreign={}):
-        if container.get(tag) is None:
-            container[tag] = {}
-        container[tag][child] = attrib
-
-    # Texts
-    tagkeys={"__FileNameXml__":"texts"}
-    __makeTagRef(tagkeys,"__all__","EN","__text__")
-
-
-    # Textures
-    tagkeys={"__FileNameXml__":"textures"}
-
-
-    # Animations
-    tagkeys={"__FileNameXml__":"animations"}
-
-
-
-    # The Haven File, all nodes under root 'data'.
-    tagkeys={"__FileNameXml__":"haven"}
-    __makeTagRef(tagkeys,"Randomizer","randomizer","id")
-    __makeTagRef(tagkeys,"GOAPAction","action","id")
-    __makeTagRef(tagkeys,"BackPack","item","mid")
-    __makeTagRef(tagkeys,"Element","me","mid")
-    __makeTagRef(tagkeys,"Product","product","eid")
-    __makeTagRef(tagkeys,"DataLogFragment","fragment","id")
-    __makeTagRef(tagkeys,"RandomShip","ship","id")
-    __makeTagRef(tagkeys,"FloorExpPackage","expPackage","id")
-    __makeTagRef(tagkeys,"IsoFX","fx","id")
-    __makeTagRef(tagkeys,"Item","item","mid")
-    __makeTagRef(tagkeys,"Tech","tech","id")
-    __makeTagRef(tagkeys,"GameScenario","game","id")
-    __makeTagRef(tagkeys,"SubCat","cat","id")
-    __makeTagRef(tagkeys,"Monster","monster","cid")
-    __makeTagRef(tagkeys,"PersonalitySettings","settings","id")
-    __makeTagRef(tagkeys,"Encounter","encounter","id")
-    __makeTagRef(tagkeys,"CostGroup","group","id")
-    __makeTagRef(tagkeys,"CharacterSet","characters","cid")
-    __makeTagRef(tagkeys,"DifficultySettings","settings","id")
-    __makeTagRef(tagkeys,"Room","data","rid")
-    __makeTagRef(tagkeys,"ObjectiveCollection","collection","nid")
-
-    # this one not very useful for two reasons:
-    #   1) there are two id's, 'id' and 'idc'
-    #   2) there is only one 'stuff' entry, which has many 'notes' children
-    __makeTagRef(tagkeys,"Notes","stuff","id")
-
-    __makeTagRef(tagkeys,"DialogChoice","choice","id")
-    __makeTagRef(tagkeys,"Faction","faction","id")
-    __makeTagRef(tagkeys,"CelestialObject","explosion","id")
-    __makeTagRef(tagkeys,"Explosion","randomizer","id")
-    __makeTagRef(tagkeys,"Character","character","cid")
-    __makeTagRef(tagkeys,"Craft","craft","cid")
-    __makeTagRef(tagkeys,"Sector","bg","id")
-    __makeTagRef(tagkeys,"DataLog","dataLog","id")
-    __makeTagRef(tagkeys,"Plan","plan","id")
-    __makeTagRef(tagkeys,"BackStory","backstory","id")
-    __makeTagRef(tagkeys,"DefaultStuff","stuff","id")
-
-    # only has one 'trade' entry, which in turn has many 't' entries keyed 'eid'.
-    __makeTagRef(tagkeys,"TradingValues","trade","id")
-
-    __makeTagRef(tagkeys,"CharacterTrait","trait","id")
-    __makeTagRef(tagkeys,"Effect","effect","id")
-    __makeTagRef(tagkeys,"CharacterCondition","condition","id")
-    __makeTagRef(tagkeys,"Ship","data","rid")
-    __makeTagRef(tagkeys,"IdleAnim","an","id")
-    __makeTagRef(tagkeys,"RoofExpPackage","expPackage","id")
-    __makeTagRef(tagkeys,"MainCat","cat","id")
-
-    # only has two entries, which have two children:
-    #   1) 'items' with children 'i' with 'tid' as key
-    #   2) 'links' with children 'l' with 'fromId' and 'toId' as keys
-    __makeTagRef(tagkeys,"TechTree","tree","id")
-    
-    #Finally, have all root level keys for 'haven'.
-    haven_keys = tagkeys
-
-    print(haven_keys["__FileNameXml__"])
-
-    return haven_keys
-
-def annotate(corePath:str, language="EN", bOutputXML = True, bOutputCSV=True, bOutputDependencies=True, bOutputPythonTree=True, bOutputLuaTree=True, bOutputReports=True):
+# Different outputs are not supported yet.  They're here to remind me of what I'm doing next.
+# The bOutputEarlyAndOften parameter save the XML immediately after loading it, for debugging.
+# Verbose gives more status feedback.
+def annotate(corePath:str, language:str="EN", bVerbose=False, bOutputEarlyAndOften:bool=False, bOutputXML:bool = True, bOutputCSV:bool=False, bOutputPythonTree:bool=False ):
     """Generate an annotated Space Haven library"""
 
-    # Root Key Lookup.
-    keys = __createDbKeyStructure()
+
+    ##############################################################################################
+    # Internal use function definitions.
+    ##############################################################################################
+
+    def Verbose(*args):
+        if bVerbose:
+            return ui.log.log(*args)
 
     # Parse a SpaceHaven XML file into an ElementTree
-    def loadXML(filename):
+    def loadXML(filename:str):
         et = ElementTree.parse(os.path.join(corePath, "library", filename), parser=XMLParser(recover=True))
         return et
 
-    # Save annotated XML at the end.
-    def saveXML(e,filename,suffix="_annotated"):
-        # path = os.path.join(corePath, "library", filename )
-        name = os.path.join(corePath, filename + suffix + ".xml")
-        t=type(e).__name__
-        et = 0-1j
-
-        if "_ElementTree" == t or "ElementTree" == t:
-            et = e
-        elif "_Element" == t or "Element" == t:
-            et = ElementTree.ElementTree(e)
-            #ElementTree.fromstring(ElementTree.tostring(e, 'utf-8')))
-        elif "_String" == t or "String" == t:
-            et = ElementTree.fromstring(e)
+    def makeXmlElementFromThisThing(thing:any):
+        e = 0-1j
+        t = type(thing).__name__
+        if t in ["_Element","Element","_RootElement","RootElement"]:
+            e=thing
+        if t in ["_ElementTree","ElementTree"]:
+            e=thing.getroot()
+        elif thing is str or t in ["_String" ,"String"]:
+            e=ElementTree.fromstring(e).getroot()
+        elif thing is dict or t in ["_Dictionary" ,"Dictionary"]:
+            e=ElementTree.fromstring( xmltodict.unparse(thing) ).getroot()
         else:
-            ui.log.log("ERROR: Cannot write type '{}' as XML to '{}'.".format(t,name))
-            return
+            ui.log.log("ERROR: Cannot convert type '{}' to XML Element !",t)
+            return None
+        
+        return e
+
+    def makeXmlElementTreeFromThisThing(thing:any):
+        t = type(thing).__name__
+        et = 0-1j
+        if t in ["_ElementTree","ElementTree"]:
+            et=thing
+        elif t in ["_Element","Element","_RootElement","RootElement"]:
+            et=ElementTree.ElementTree(thing)
+        elif thing is str or t in ["_String" ,"String"]:
+            et=ElementTree.fromstring(e)
+        elif thing is dict or t in ["_Dictionary" ,"Dictionary"]:
+            et=ElementTree.fromstring( xmltodict.unparse(thing) )
+        else:
+            ui.log.log("ERROR: Cannot convert type '{}' to XML ElementTree !",t)
+            return None
+        
+        return et
+
+
+    # Output XML.
+    def saveXML(element_or_tree:dict or ElementTree or Element or _Element or RootElement,name:str, suffix:str="",prefix:str=""):
+        # path = os.path.join(corePath, "library", filename )
+        name = os.path.join(corePath, prefix + name + suffix + ".xml")
+        et = makeXmlElementTreeFromThisThing(element_or_tree)
         et.write(name)
         ui.log.log("  Wrote {}".format(name))
 
+    # Save Python dictionary of the XML.
+    def savePython(element_or_tree:dict or ElementTree or Element or _Element or RootElement, name:str, suffix:str="", prefix:str=""):
+        t = type(element_or_tree).__name__
+        root = makeXmlElementFromThisThing(element_or_tree)
+        name = os.path.join(corePath, prefix + name + suffix + ".csv")
+        d = xmltodict.parse( ElementTree.tostring(root) )
+
+        # TODO: pretty printer.
+        with open(name, 'w', encoding='UTF8' ) as f:
+            f.write('{} = [{}]'.format(root.tag,d))
+
+        ui.log.log("  Wrote {}".format(name))
+
+    # TODO: I need to finish this and make it actually work!
     # Optionally save CSV.
-    def saveCSV(element_or_tree:ElementTree or Element or _Element or RootElement, filename:str, fieldnames:list,suffix="_annotated"):
-        name = os.path.join(corePath, filename + suffix + ".csv")
+    # Unlike the other functions, this only saves the direct children of the passed 
+    def saveCSV(element_or_tree:dict or ElementTree or Element or _Element or RootElement, attribs:list):
         root=element_or_tree
-        if type(element_or_tree).__name__ in ["ElementTree","_ElementTree"]:
+        t = type(element_or_tree).__name__
+        if t in ["ElementTree","_ElementTree"]:
             root = element_or_tree.getroot()
+        name = os.path.join(corePath, prefix + root.tag + suffix + ".csv")
         with open(name, 'w', encoding='UTF8', newline='' ) as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter=';', quotechar='"', quoting=csv.QUOTE_ALL)
+            writer = csv.DictWriter(f, fieldnames=attribs, delimiter=';', quotechar='"', quoting=csv.QUOTE_ALL)
             writer.writeheader()
             for e in root:
                 row = {}
-                for field in fieldnames:
+                for field in attribs:
                     s:str
                     s = e.get(field) or ""
                     row[field] = s
@@ -183,124 +109,138 @@ def annotate(corePath:str, language="EN", bOutputXML = True, bOutputCSV=True, bO
         ui.log.log("  Wrote {}".format(name))
         return name
 
-    # Optionally save Python dictionary of the XML.
-    def savePython(root, filename, suffix="_annotated" ):
-        name = os.path.join(corePath, filename + suffix + ".py" )
-        # e:ElementTree.Element
-        #if type(root) in ["ElementTree","_ElementTree"]:
-        #    e = root.getroot()
-        d = xmltodict.parse( ElementTree.tostring(root) )
+    # Saves in every enabled format.
+    def saveMulti(element_or_tree:dict or _ElementTree or ElementTree or Element or _Element or RootElement, name:str, suffix:str="", prefix:str=""):
+        if bOutputXML:
+            saveXML(element_or_tree, name, suffix, prefix)
 
-        with open(name, 'w', encoding='UTF8' ) as f:
-            f.write('{} = [{}]'.format(e.tag,d))
-
-        ui.log.log("  Wrote {}".format(name))
+    # Used for debugging.
+    def maybeSaveAll(element_or_elementtree:dict or _ElementTree or ElementTree or Element or _Element or RootElement, name:str, suffix:str="", prefix:str=""):
+        if bOutputEarlyAndOften: 
+            return saveMulti(element_or_elementtree,name,suffix,prefix)
 
 
-    # Optionally save runnable Lua of the XML.
-    # This is done by making each tag a function call passed a list.
-    # The named part of the Lua gets the attributes, the numeric part gets all children, including text, in order.
-    def saveLua(root, filename, fieldnames ):
-        print("foo")
+    ##############################################################################################
+    # Load XML files, from quickest/smallest to slowest/largest.
+    # All of them are kept in memory so that the relationships can be built later.
+    ##############################################################################################
 
 
+    # root 'f'.  Unique tags, key attrib 'id'
+    ui.log.log("  Loading fonts XML...")
+    fontsxml = loadXML("fonts")
+    maybeSaveAll(fontsxml,"fonts")
 
-    # Load XML files
-    ui.log.log("  Loading haven XML...")
-    havenxml = loadXML("haven")
+    # root 'files'.  Unique tags, key attrib 'id'
+    ui.log.log("  Loading gfiles XML...")
+    gfilesxml = loadXML("gfiles")
+    maybeSaveAll(gfilesxml,"gfiles")
 
+    # root 'AllTexturesAndRegions'.  'textures' tag with 't' tag has key 'i' and 'regions' tag with 're' tag has key 'id' and foreign key '' to the 'textures' section.
+    ui.log.log("  Loading texture regions and textures XML...")
+    texturesxml = loadXML("textures")
+    maybeSaveAll(fontsxml,"textures")
 
-    # 
-    saveXML(havenxml,"haven")
-    saveCSV(havenxml.find("GameScenario"),"haven_GameScenario")
-    savePython(havenxml,"haven")
-
-
-    ui.log.log("  Loading textures XML...")
-    texturexml = loadXML("textures")
-
+    # root 'AllAnimations'.  'ba' tag has keys string 'n' and int 'id', both unique.  Also has foreign key 'tid' references 're' in textures file.
     ui.log.log("  Loading animations XML...")
-    animationxml = loadXML("animations")
+    animationsxml = loadXML("animations")
+    maybeSaveAll(animationsxml,"animations")
 
+    # root 'GenNParticles'.  Unique tags, key attrib 'id'
+    ui.log.log("  Loading GenNParticles gp XML...")
+    gpxml = loadXML("gp")
+    maybeSaveAll(gpxml,"gp")
+
+    # root 't'.  Unique tags, key on 
     ui.log.log("  Loading texts XML...")
     textsxml = loadXML("texts")
+    maybeSaveAll(textsxml,"texts")
+
+    # root 'data'.  Most of the game data.  Many sections, some with multiple possible child tags.
+    ui.log.log("  Loading haven XML...")
+    havenxml = loadXML("haven")
+    maybeSaveAll(havenxml,"haven")
+
+    ##############################################################################################
+    # Process XML files
+    ##############################################################################################
+
+    ui.log.log("  Processing text...")
+
+    # Create table of text IDs for rapid lookup later.
+    tids = {}   # quick lookup dictionary.
+    tname = {}  # detailed dictionary.
+    tname["COLLISION"] = {"tag":"COLLISION", "text":"COLLISION"}
+    for text in textsxml.getroot():
+        id = text.get("id")
+        tids[id] = text.find(language).text
+        tname[id] = {}
+        tname[id]["tag"] = text.tag             # Text entries have mostly (but not always) unique tags.
+        tname[id]["text"] = tids[id]            # The text used above, based on settings.
+        for child in text:
+            tname[id][child.tag] = child.text   # All language text can be referenced explicitly.
+        if tname.get(text.tag) is None:
+            tname[text.tag] = tname[id]
+        else:
+            tname[text.tag] = tname["COLLISION"]
 
 
-    ''' TODO:
-    Maybe support the following for reporting:
-        File            Root Element            Tag        
-        gp              GenNParticles           (unique) have key 'id'
-        gfiles          files                   (unique) have key 'id'
-        textures        AllTexturesAndRegions   'textures' with 't' have key 'i'
-                                                'regions' with 're' have key 'id'
-        animations      AllAnimations           one 'animations' with 'ba' have keys string 'n' and int 'id'
-        fonts           f                       (unique) have key 'id'
-    '''
+    # Try hard to find a name for typical elements that have a name.
+    # The game always does this with a child tag instead of an attribute, for some reason.
+    # More attempts are made later, depending on element type.
+    def nameOf(element:ElementTree.Element or ElementTree._Element_Py):
+        e = element
+        name = element.find("name")
+        if name is not None:
+            e = name
 
+        tid = e.get("tid")
+
+        if tid is None:
+            return ""
+
+        if tids.get(tid) is None:
+            return ""
+
+        return tids[tid]
+
+
+    # Recurse EVERY element in the entire haven file, trying to find the name and set the annotation where it's obvious.
+    # This is only a first pass.
+    ui.log.log("  Process haven data for names...")
+    # Annotate every XML element where the name is obvious.
+    for e in havenxml.iter():
+        name = nameOf(e)
+        if "" != name:
+            e.set("_annotation", nameOf(e))
 
     # Annotate Textures.
+    texture_names = {}
     ui.log.log("  Processing textures and animations...")
-    for region in texturexml.findall(".//re[@n]"):
+    for region in texturesxml.findall(".//re[@n]"):
         if not region.get("_annotation"):
             continue
         texture_names[region.get('n')] = region.get("_annotation")
-    
+
 
     # Annotate Animations.
-    for assetPos in animations.findall('.//assetPos[@a]'):
+    for assetPos in animationsxml.findall('.//assetPos[@a]'):
         asset_id = assetPos.get('a')
         if not asset_id in texture_names:
             continue
         assetPos.set('_annotation', texture_names[asset_id])
 
     
-    # Create table of text IDs for rapid lookup later.
-    tids = {}
-    for text in texts.getroot():
-        tids[id] = text.find("EN").text
-        id = text.get("id")
-        tids[id] = text.find("EN").text
-        tname[id] = {}
-        tname[id]["tag"] = text.tag
-
-    def nameOf(element):
-        e = element
-        name = element.find("name")
-        if name is not None:
-            e = name
-
-        tid = e.get("tid")        
-
-        # Make one last chance to search for name elsewhere
-        if tid is None:
-            tid = e.get("name")
-
-        if tid is None:
-            return ""
-
-        if tids[tid] is None:
-            return ""
-
-        return tids[tid]
 
 
     # Avoid fragmenting memory.
-    # this probably isn't strictly needed, but it reduces memory useage for me with no noticable lag.
+    # this probably isn't strictly needed.
     gc.collect()
 
 
-    n=64
-    v=2
-    print(n)
-    while n>0:
-        v=v^2
-        n=n-1
-    print(n)
-    print(v)
 
 
-    ui.log.log("  Process haven data Element...")
-    ElementRoot = haven.find("Element")
+    ElementRoot = havenxml.find("Element")
     ElementName = {}
     ElementLink = {}
     # Annotate Elements and create list of links.
@@ -336,21 +276,21 @@ def annotate(corePath:str, language="EN", bOutputXML = True, bOutputCSV=True, bO
     # first pass also builds the names cache
     ui.log.log("  annotate Product...")
     elementNames = {}
-    ProductRoot = haven.find("Product")
+    ProductRoot = havenxml.find("Product")
     for element in ProductRoot:
         name = nameOf(element) or element.get("elementType") or ""        
         if name:
             element.set("_annotation", name)
         elementNames[element.get("eid")] = name
     
-    ItemRoot = haven.find("Item")
+    ItemRoot = havenxml.find("Item")
     for item in ItemRoot:
         name = nameOf(item) or item.get("elementType") or ""        
         if name:
             item.set("_annotation", name)
         elementNames[item.get("mid")] = name
     
-    # small helped to annotate a node
+    # small helper to annotate a node
     def _annotate_elt(element, attr = None):
         if attr:
             name = elementNames[element.get(attr)]
@@ -385,7 +325,7 @@ def annotate(corePath:str, language="EN", bOutputXML = True, bOutputCSV=True, bO
             element.set("_annotation", processName)
     
     #generic rule should work for all remaining nodes ?
-    for sub_element in haven.findall(".//*[@consumeEvery]"):
+    for sub_element in havenxml.findall(".//*[@consumeEvery]"):
         try:
             _annotate_elt(sub_element)
         except:
@@ -398,7 +338,7 @@ def annotate(corePath:str, language="EN", bOutputXML = True, bOutputCSV=True, bO
     for process in ProductRoot.xpath('.//list/processes/l[@process]'):
         process.set("_annotation", elementNames[process.get("process")])
     
-    for trade in haven.find('TradingValues').findall('.//t'):
+    for trade in havenxml.find('TradingValues').findall('.//t'):
         try:
             _annotate_elt(trade, attr = 'eid')
         except:
@@ -407,7 +347,7 @@ def annotate(corePath:str, language="EN", bOutputXML = True, bOutputCSV=True, bO
 
 
     ui.log.log("  annotate DifficultySettings...")
-    DifficultySettings = haven.find('DifficultySettings')
+    DifficultySettings = havenxml.find('DifficultySettings')
     for settings in DifficultySettings:
         name = nameOf(settings)
         
@@ -429,7 +369,7 @@ def annotate(corePath:str, language="EN", bOutputXML = True, bOutputCSV=True, bO
 
 
     ui.log.log("  annotate Tech...")
-    TechRoot = haven.find("Tech")
+    TechRoot = havenxml.find("Tech")
     TechName = {}
     for tech in TechRoot:
         id = tech.get("id")
@@ -439,7 +379,7 @@ def annotate(corePath:str, language="EN", bOutputXML = True, bOutputCSV=True, bO
             TechName[id] = tech.get("_annotation")
 
     ui.log.log("  annotate TechTree...")
-    TechTreeRoot = haven.find("TechTree")
+    TechTreeRoot = havenxml.find("TechTree")
     for techtree in TechTreeRoot:
         techtreeid = techtree.get("id")
         for techitem in techtree.find("items"):
@@ -456,7 +396,7 @@ def annotate(corePath:str, language="EN", bOutputXML = True, bOutputCSV=True, bO
 
 
     ui.log.log("  annotate MainCat...")
-    MainCatRoot = haven.find("MainCat")
+    MainCatRoot = havenxml.find("MainCat")
     MainCatName = {}
     for cat in MainCatRoot:
         id = cat.get("id")
@@ -477,7 +417,7 @@ def annotate(corePath:str, language="EN", bOutputXML = True, bOutputCSV=True, bO
         if id is not None:
             gfilename[id] = path
     # now Annotate DataLogFragment with file paths and names.
-    DataLogFragmentRoot = haven.find("DataLogFragment")
+    DataLogFragmentRoot = havenxml.find("DataLogFragment")
     for fragment in DataLogFragmentRoot:
         id = fragment.get("id")
         languages = fragment.find("languages")
@@ -494,7 +434,7 @@ def annotate(corePath:str, language="EN", bOutputXML = True, bOutputCSV=True, bO
 
 
     ui.log.log("  annotate CharacterCondition...")
-    CharacterConditionRoot = haven.find("CharacterCondition")
+    CharacterConditionRoot = havenxml.find("CharacterCondition")
     CharacterConditionName = {}
     for tech in TechRoot:
         id = tech.get("id")
@@ -505,27 +445,20 @@ def annotate(corePath:str, language="EN", bOutputXML = True, bOutputCSV=True, bO
 
 
 
-
+    ##############################################################################################
     # Finish, save annotated XML.
-    ui.log.log("  saving XML...")
-    saveXml(haven,"haven_annotated.xml")
-    saveXml(ElementRoot,"haven_Element.xml")
-    saveXml(ProductRoot,"haven_Product.xml")
-    saveXml(TechRoot,"haven_Tech.xml")
-    saveXml(TechTreeRoot,"haven_TechTree.xml")
+    ##############################################################################################
+    ui.log.log("  Saving Annotated Files...")
+    saveMulti(fontsxml,"fonts","_annotated" )
+    saveMulti(gfilesxml,"gfiles","_annotated" )
+    saveMulti(texturesxml,"textures","_annotated" )
+    saveMulti(animationsxml,"animations","_annotated" )
+    saveMulti(gpxml,"gp","_annotated" )
+    saveMulti(textsxml,"texts","_annotated" )
+    saveMulti(havenxml,"haven","_annotated" )
 
-
-    # Write reference CSV files.
-    ui.log.log("  saving CSV...")
-    saveCSV(ElementRoot,"haven_Element.csv", ["mid","_annotation","_linkedBy"]  )
-    saveCSV(ProductRoot,"haven_Product.csv", ["eid", "type", "_annotation"])
-    saveCSV(ItemRoot,"haven_Item.csv", ["mid","_annotation"])
-    saveCSV(TechRoot,"haven_Tech.csv", ["id","_annotation"])
-    for tt in TechTreeRoot:
-        ttid = tt.get("id") or "0"
-        items = tt.find("items")
-        saveCSV(items,"haven_TechTree_{}_items.csv".format(ttid), ["tid","_annotation"])
-        links = tt.find("links")
-        saveCSV(links,"haven_TechTree_{}_links.csv".format(ttid), ["fromId","_fromName","toId","_toName"])
+    #Every section of haven individually
+    for section in havenxml.getroot():
+        saveMulti(section,section.tag,"_annotated", "haven_" )
 
     ui.log.log("  Annotation Finished.")
