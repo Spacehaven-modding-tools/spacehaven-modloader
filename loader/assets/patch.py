@@ -17,6 +17,7 @@ def AttributeAdd(patchArgs):
     elem : lxml.etree._Element
     currentCoreLibElems = patchArgs["coreLibElems"]
     attribute = patchArgs["attribute"].text
+    value = patchArgs["value"]
 
     for elem in currentCoreLibElems:
         if elem.get(attribute, None) is not None:
