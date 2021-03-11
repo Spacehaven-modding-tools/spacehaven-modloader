@@ -430,12 +430,11 @@ class Window(Frame):
         ui.log.log(f"Annotating and putting files in {corePath}")
         try:
             loader.assets.annotate.annotate(corePath)
-        except Exception as exc:
+        except Exception as e:
             ui.log.log("  Error during annotation!")
-            ui.log.log(repr(exc))
-
-        # ui.launcher.open(os.path.join(corePath, 'library'))
-        ui.launcher.open(corePath)
+            ui.log.log(repr(e))
+        
+        ui.launcher.open(os.path.join(corePath, 'library'))
     
     def mods_enabled(self):
         return DatabaseHandler.getActiveMods()

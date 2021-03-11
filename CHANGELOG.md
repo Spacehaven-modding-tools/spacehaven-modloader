@@ -1,4 +1,7 @@
 # Change Log
+## v0.9.1
+- BUGFIX: AttributeAdd patch operations were universally failing due to missing variable.
+
 ## v0.9.0
 - On Windows, the game will be autolocated via Steam if possible.
 - `<modid>` tag in info.xml: Defines a prefix that can be used in various places during mod creation.
