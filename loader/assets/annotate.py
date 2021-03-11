@@ -14,7 +14,7 @@ import csv
 # Different outputs are not supported yet.  They're here to remind me of what I'm doing next.
 # The bOutputEarlyAndOften parameter save the XML immediately after loading it, for debugging.
 # Verbose gives more status feedback.
-def annotate(corePath:str, language:str="EN", bVerbose=False, bOutputEarlyAndOften:bool=False, bOutputXML:bool = True, bOutputCSV:bool=False, bOutputPythonTree:bool=False ):
+def annotate(corePath:str, language:str="EN", bVerbose=False, bOutputXML:bool = True, bOutputCSV:bool=False, bOutputPythonDict:bool=False ):
     """Generate an annotated Space Haven library"""
 
 
@@ -26,56 +26,54 @@ def annotate(corePath:str, language:str="EN", bVerbose=False, bOutputEarlyAndOft
         if bVerbose:
             return ui.log.log(*args)
 
-    # Parse a SpaceHaven XML file into an ElementTree
-    def loadXML(filename:str):
-        et = ElementTree.parse(os.path.join(corePath, "library", filename), parser=XMLParser(recover=True))
-        return et
+    # Global root for all XML. key is String, value is ElementTree.
+    SpaceHavenXmlFiles = {}
 
+    # Parse a SpaceHaven XML file into an ElementTree
+    def loadXML(name:str):
+        path = os.path.join(corePath, "library", name)
+        et = ElementTree.parse(path, parser=XMLParser(recover=True))
+        SpaceHavenXmlFiles[name] = et
+        return et
+        
     def makeXmlElementFromThisThing(thing:any):
-        e = 0-1j
         t = type(thing).__name__
         if t in ["_Element","Element","_RootElement","RootElement"]:
-            e=thing
+            return thing
         if t in ["_ElementTree","ElementTree"]:
-            e=thing.getroot()
+            return thing.getroot()
         elif thing is str or t in ["_String" ,"String"]:
-            e=ElementTree.fromstring(e).getroot()
+            return ElementTree.fromstring(e).getroot()
         elif thing is dict or t in ["_Dictionary" ,"Dictionary"]:
-            e=ElementTree.fromstring( xmltodict.unparse(thing) ).getroot()
+            return ElementTree.fromstring( xmltodict.unparse(thing) ).getroot()
         else:
             ui.log.log("ERROR: Cannot convert type '{}' to XML Element !",t)
-            return None
-        
-        return e
+        return None
 
     def makeXmlElementTreeFromThisThing(thing:any):
         t = type(thing).__name__
-        et = 0-1j
         if t in ["_ElementTree","ElementTree"]:
-            et=thing
+            return thing
         elif t in ["_Element","Element","_RootElement","RootElement"]:
-            et=ElementTree.ElementTree(thing)
+            return ElementTree.ElementTree(thing)
         elif thing is str or t in ["_String" ,"String"]:
-            et=ElementTree.fromstring(e)
+            return ElementTree.fromstring(e)
         elif thing is dict or t in ["_Dictionary" ,"Dictionary"]:
-            et=ElementTree.fromstring( xmltodict.unparse(thing) )
+            return ElementTree.fromstring( xmltodict.unparse(thing) )
         else:
-            ui.log.log("ERROR: Cannot convert type '{}' to XML ElementTree !",t)
-            return None
-        
-        return et
+            ui.log.log("ERROR: Cannot convert type '{}' to XML ElementTree !",t)        
+        return None
 
 
     # Output XML.
-    def saveXML(element_or_tree:dict or ElementTree or Element or _Element or RootElement,name:str, suffix:str="",prefix:str=""):
-        # path = os.path.join(corePath, "library", filename )
+    def saveXML(element_or_tree, name:str, suffix:str="",prefix:str=""):
         name = os.path.join(corePath, prefix + name + suffix + ".xml")
         et = makeXmlElementTreeFromThisThing(element_or_tree)
-        et.write(name)
+        et.write(name, encoding='UTF8')
         ui.log.log("  Wrote {}".format(name))
 
     # Save Python dictionary of the XML.
-    def savePython(element_or_tree:dict or ElementTree or Element or _Element or RootElement, name:str, suffix:str="", prefix:str=""):
+    def savePython(element_or_tree, name:str, suffix:str="", prefix:str=""):
         t = type(element_or_tree).__name__
         root = makeXmlElementFromThisThing(element_or_tree)
         name = os.path.join(corePath, prefix + name + suffix + ".csv")
@@ -110,21 +108,19 @@ def annotate(corePath:str, language:str="EN", bVerbose=False, bOutputEarlyAndOft
         return name
 
     # Saves in every enabled format.
-    def saveMulti(element_or_tree:dict or _ElementTree or ElementTree or Element or _Element or RootElement, name:str, suffix:str="", prefix:str=""):
+    def saveMulti(element_or_tree, name:str, suffix:str="", prefix:str=""):
         if bOutputXML:
             saveXML(element_or_tree, name, suffix, prefix)
 
-    # Used for debugging.
-    def maybeSaveAll(element_or_elementtree:dict or _ElementTree or ElementTree or Element or _Element or RootElement, name:str, suffix:str="", prefix:str=""):
-        if bOutputEarlyAndOften: 
-            return saveMulti(element_or_elementtree,name,suffix,prefix)
+    # Used for debugging.  Disabled now.
+    def maybeSaveAll(element_or_elementtree, name:str, suffix:str="", prefix:str=""):
+        return #saveMulti(element_or_elementtree,name,suffix,prefix)
 
 
     ##############################################################################################
-    # Load XML files, from quickest/smallest to slowest/largest.
+    # Load XML files, from smallest to largest.
     # All of them are kept in memory so that the relationships can be built later.
     ##############################################################################################
-
 
     # root 'f'.  Unique tags, key attrib 'id'
     ui.log.log("  Loading fonts XML...")
@@ -204,15 +200,33 @@ def annotate(corePath:str, language:str="EN", bVerbose=False, bOutputEarlyAndOft
 
         return tids[tid]
 
+    # small helper to annotate a node
+    def _annotate_elt(element, attr = None):
+        if attr:
+            name = elementNames[element.get(attr)]
+        else:
+            name = elementNames[element.get("element", element.get("elementId"))]
+        if name:
+            element.set("_annotation", name)
+        return name
 
+
+    ##############################################################################################
     # Recurse EVERY element in the entire haven file, trying to find the name and set the annotation where it's obvious.
-    # This is only a first pass.
+    # This is only a first pass, but covers most tags.
     ui.log.log("  Process haven data for names...")
     # Annotate every XML element where the name is obvious.
     for e in havenxml.iter():
+        # giving annotations to these tags would be redundant or spammy.
+        if e.tag in ["name","desc","objectInfo","text"]:
+            continue
         name = nameOf(e)
-        if "" != name:
-            e.set("_annotation", nameOf(e))
+        if name:
+            e.set("_annotation", name)
+
+
+    """
+    None of these do anything useful with game version 0.11.2
 
     # Annotate Textures.
     texture_names = {}
@@ -230,12 +244,13 @@ def annotate(corePath:str, language:str="EN", bVerbose=False, bOutputEarlyAndOft
             continue
         assetPos.set('_annotation', texture_names[asset_id])
 
+    """
     
 
 
     # Avoid fragmenting memory.
     # this probably isn't strictly needed.
-    gc.collect()
+    # gc.collect()
 
 
 
@@ -243,11 +258,11 @@ def annotate(corePath:str, language:str="EN", bVerbose=False, bOutputEarlyAndOft
     ElementRoot = havenxml.find("Element")
     ElementName = {}
     ElementLink = {}
-    # Annotate Elements and create list of links.
+    # First pas of Element.  Annotate Elements and create list of links.
     for element in ElementRoot:
         mid = element.get("mid")
         objectInfo = element.find("objectInfo")
-        if objectInfo is not None:
+        if objectInfo is not None and not element.get("_annotation"):
             element.set("_annotation", nameOf(objectInfo))
             ElementName[mid] = element.get("_annotation")
         # Keep track of links, inverted.
@@ -289,17 +304,7 @@ def annotate(corePath:str, language:str="EN", bVerbose=False, bOutputEarlyAndOft
         if name:
             item.set("_annotation", name)
         elementNames[item.get("mid")] = name
-    
-    # small helper to annotate a node
-    def _annotate_elt(element, attr = None):
-        if attr:
-            name = elementNames[element.get(attr)]
-        else:
-            name = elementNames[element.get("element", element.get("elementId"))]
-        if name:
-            element.set("_annotation", name)
-        return name
-    
+        
     # construction blocks for the build menu
     for me in ElementRoot:
         for customPrice in me.findall(".//customPrice"):
@@ -444,21 +449,28 @@ def annotate(corePath:str, language:str="EN", bVerbose=False, bOutputEarlyAndOft
             TechName[id] = tech.get("_annotation")
 
 
+    # Avoid fragmenting memory.
+    # this probably isn't strictly needed.
+    gc.collect()
+
 
     ##############################################################################################
-    # Finish, save annotated XML.
+    # Finish, save annotated XML, smallest file to largest.
+    # Right now, only haven gets meaningful _annotation values.
     ##############################################################################################
     ui.log.log("  Saving Annotated Files...")
-    saveMulti(fontsxml,"fonts","_annotated" )
-    saveMulti(gfilesxml,"gfiles","_annotated" )
-    saveMulti(texturesxml,"textures","_annotated" )
-    saveMulti(animationsxml,"animations","_annotated" )
-    saveMulti(gpxml,"gp","_annotated" )
-    saveMulti(textsxml,"texts","_annotated" )
+    #saveMulti(fontsxml,"fonts","_annotated" )
+    #saveMulti(gfilesxml,"gfiles","_annotated" )
+    #saveMulti(texturesxml,"textures","_annotated" )
+    #saveMulti(animationsxml,"animations","_annotated" )
+    #saveMulti(gpxml,"gp","_annotated" )
+    #saveMulti(textsxml,"texts","_annotated" )
     saveMulti(havenxml,"haven","_annotated" )
 
-    #Every section of haven individually
-    for section in havenxml.getroot():
-        saveMulti(section,section.tag,"_annotated", "haven_" )
+    # DISABLED
+    # Every section of haven individually
+    #for section in havenxml.getroot():
+    #    saveMulti(section,section.tag,"_annotated", "haven_" )
 
     ui.log.log("  Annotation Finished.")
+

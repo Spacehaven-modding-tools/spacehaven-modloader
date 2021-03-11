@@ -1,4 +1,18 @@
 # Change Log
+## v0.9.x1
+- haven `data/Element/me` is more thoroughly searched to set `_annotation`.
+- haven `data/Element/me` now has attrib `_linkedBy` which lists all `<me>` that show this element as a dependency.  When possible, shows the dependency `mid` and name.
+- haven `data/GameScenario/setting` revised `_annotation`.
+- haven `data/DifficultySettings/setting` revised `_annotation`.
+- haven `data/Tech` now gets annotated.
+- haven `data/TechTree` now gets annotated, with both techs and from-to tech names.
+- haven `data/MainCat` now gets annotated based on `gfiles`.
+- haven `data/CharacterCondition` now gets annotated.
+- every tag everywhere that has a child `name` tag now gets annotated.
+- add support to xpath patch more sections of `haven`.
+- add support for creating new `GameScenario`.
+- add support for creating new `DifficultySettings`.
+
 ## v0.9.0
 - On Windows, the game will be autolocated via Steam if possible.
 - `<modid>` tag in info.xml: Defines a prefix that can be used in various places during mod creation.
