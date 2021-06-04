@@ -1,0 +1,50 @@
+<Patch>	
+
+	<!-- Logistics Robot -->
+	<Operation Class="AttributeSet">
+		<xpath>/data/Robot/robot[@cid=2874]/workInfo[@logistics]</xpath>
+		<attribute>logistics</attribute>
+		<value>{2874 logistics}</value>
+	</Operation>
+	<Operation Class="AttributeSet">
+		<xpath>/data/Robot/robot[@cid=2874]/workInfo[@dismantle]</xpath>
+		<attribute>dismantle</attribute>
+		<value>{2874 dismantle}</value>
+	</Operation>
+	<Operation Class="AttributeSet">
+		<xpath>/data/Robot/robot[@cid=2874]/workInfo[@repair]</xpath>
+		<attribute>repair</attribute>
+		<value>{2874 repair}</value>
+	</Operation>
+	<Operation Class="AttributeSet">
+		<xpath>/data/Robot/robot[@cid=2874]/workInfo[@build]</xpath>
+		<attribute>build</attribute>
+		<value>{2874 build}</value>
+	</Operation>
+
+
+	<!-- Salvage Robot -->
+	<Operation Class="AttributeSet">
+		<xpath>/data/Robot/robot[@cid=2888]/workInfo[@logistics]</xpath>
+		<attribute>logistics</attribute>
+		<value>{2888 logistics}</value>
+	</Operation>
+	<Operation Class="AttributeSet">
+		<xpath>/data/Robot/robot[@cid=2888]/workInfo[@dismantle]</xpath>
+		<attribute>dismantle</attribute>
+		<value>{2888 dismantle}</value>
+	</Operation>
+	<Operation Class="AttributeSet">
+		<xpath>/data/Robot/robot[@cid=2888]/workInfo[@repair]</xpath>
+		<attribute>repair</attribute>
+		<value>{2888 repair}</value>
+	</Operation>
+	<Operation Class="AttributeSet">
+		<xpath>/data/Robot/robot[@cid=2888]/workInfo[@build]</xpath>
+		<attribute>build</attribute>
+		<value>{2888 build}</value>
+	</Operation>
+
+
+
+</Patch>

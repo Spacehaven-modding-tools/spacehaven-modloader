@@ -252,7 +252,7 @@ def buildLibrary(location: str, mod: str):
     return location_library
 
 
-def mods(corePath, modPaths):
+def mods(corePath, activeMods, modPaths):
     # Load the core library files
     coreLibrary = {}
     def _core_path(filename):
@@ -280,10 +280,10 @@ def mods(corePath, modPaths):
         doMerges(coreLibrary, modLibrary, mod)
 
     # Do patches after merges to avoid clobbers
-    for mod in modPaths:
-        ui.log.updateLaunchState(f"Patching {os.path.basename(mod)}")
-        ui.log.log(f"  Loading patches {mod}...")
-        modPatchesLibrary = buildLibrary('patches', mod)
+    for mod in activeMods:
+        ui.log.updateLaunchState(f"Patching {os.path.basename(mod.path)}")
+        ui.log.log(f"  Loading patches {mod.path}...")
+        modPatchesLibrary = buildLibrary('patches', mod.path)
         doPatches(coreLibrary, modPatchesLibrary, mod)
 
     ui.log.updateLaunchState("Updating XML")
@@ -319,6 +319,11 @@ def mods(corePath, modPaths):
                 extra_assets.append('library/' + cim_name)
                 
             cims[page] = Texture(os.path.join(corePath, 'library', cim_name), **kwargs)
+
+            reexport_cims[page] = set()
+
+        # write back the cim file as png for debugging
+        # reexport_cims[page].add(os.path.normpath(mod + "/textures"))
 
         x = int(region.get("x"))
         y = int(region.get("y"))
@@ -365,7 +370,10 @@ def doMerges(coreLib, modLib, mod: str):
         "/data/Effect": "id",
         "/data/Element": "mid",
         "/data/Encounter": "id",
+        "/data/Explosion": "id",               #
         "/data/Faction": "id",
+        "/data/FloorExpPackage": "id",         #
+        "/data/GameScenario": "id",            #
         "/data/GOAPAction": "id",
         "/data/IdleAnim": "id",
         "/data/IsoFX": "id",
@@ -377,12 +385,16 @@ def doMerges(coreLib, modLib, mod: str):
         "/data/PersonalitySettings": "id",
         "/data/Plan": "id",
         "/data/Product": "eid",
-        "/data/RandomShip": "id",
         "/data/Randomizer": "id",
+        "/data/RandomShip": "id",
+        "/data/Robot":"cid",                   #
+        "/data/RoofExpPackage": "id",          #
         "/data/Room": "rid",
         "/data/Sector": "id",
         "/data/Ship": "rid",
         "/data/SubCat": "id",
+        "/data/Tech": "id",                    #
+        "/data/TechTree": "id",                #
         "/data/TradingValues": "id",
     }
 

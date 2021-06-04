@@ -1,0 +1,41 @@
+<Patch>	
+
+	<!-- All standard generators -->
+	<Operation Class="AttributeMath">
+		<xpath>/data/Product/product/products/l[@element="34"][@howMuch]</xpath>	<!-- 34 is Electricity -->
+		<attribute>howMuch</attribute>
+		<value opType="multiply">{GeneratorOutput}</value>
+	</Operation>
+	
+	
+	<!-- All solar generators -->
+	<Operation Class="AttributeMath">
+		<xpath>/data/Element/me/data/l/element/solar[@powerPerSec]</xpath>
+		<attribute>powerPerSec</attribute>
+		<value opType="multiply">{SolarOutput}</value>
+	</Operation>
+
+
+	<!-- Batteries, Nodes, and Generators -->
+	<Operation Class="AttributeMath">
+		<xpath>/data/Element/me/data/l/element/features/powerGrid[@radius]</xpath>
+		<attribute>radius</attribute>
+		<value opType="multiply">{PowerRadius}</value>
+	</Operation>
+	<Operation Class="AttributeMath">
+		<xpath>/data/Element/me/data/l/element/features/powerGrid[@capacity]</xpath>
+		<attribute>capacity</attribute>
+		<value opType="multiply">{EnergyCapacity}</value>
+	</Operation>
+	<Operation Class="AttributeMath">
+		<xpath>/data/Element/me/data/l/element/features/powerGrid[@linkDistance]</xpath>
+		<attribute>linkDistance</attribute>
+		<value opType="multiply">{LinkDistance}</value>
+	</Operation>
+	<Operation Class="AttributeMath">
+		<xpath>/data/Element/me/data/l/element/features/powerGrid[@maxLinks]</xpath>
+		<attribute>maxLinks</attribute>
+		<value opType="multiply">{MaxLinks}</value>
+	</Operation>
+
+</Patch>

@@ -12,8 +12,10 @@ import loader.assets.merge
 def quick_launch_filename(mods_cache_signature):
     return "quicklaunch_" + mods_cache_signature + ".jar"
 
-def load(jarPath, modPaths, mods_cache_signature = None):
+def load(jarPath, activeMods, mods_cache_signature = None):
     """Load mods into spacehaven.jar"""
+
+    modPaths = [mod.path for mod in activeMods]
 
     unload(jarPath, message = False)
 
@@ -27,7 +29,7 @@ def load(jarPath, modPaths, mods_cache_signature = None):
     
     loader.assets.library.extract(jarPath, corePath)
     ui.log.updateBackgroundState("Installing Mods")
-    extra_assets = loader.assets.merge.mods(corePath, modPaths)
+    extra_assets = loader.assets.merge.mods(corePath, activeMods, modPaths)
 
     os.rename(jarPath, jarPath + '.vanilla')
     loader.assets.library.patch(jarPath + '.vanilla', corePath, jarPath, extra_assets = extra_assets)

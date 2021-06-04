@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import distutils.version
+from operator import truediv
 import os
 from xml.etree import ElementTree
 
@@ -10,6 +11,7 @@ import version
 import ui.gameinfo
 import ui.log
 
+import tkinter as tk
 
 class ModDatabase:
     """Information about a collection of mods"""
@@ -93,6 +95,67 @@ class ModDatabase:
             raise Exception("Mod Database not ready.")
         return cls.__lastInstance
 
+
+class ModConfigVar:
+    """ An individual user configurable variable.  Presently a simple string search-replace. Designed to support more advanced features."""
+
+    def __init__(self, XML:ElementTree.Element):
+        self.loadXml(
+                XML.get("name"),        # Internal Name, used in search-replace of the XML.
+                XML.text,               # Description shown in UI to user.
+                XML.get("type"),        # Optional Data type, as int, float, str, or bool. TODO:enforce.
+                XML.get("size"),        # Optional Size. Number of characters permitted in string.  TODO:enforce.
+                XML.get("min"),         # Optional minimum value. TODO:enforce.
+                XML.get("max"),         # Optional maximum value. TODO:enforce.
+                XML.get("default"),     # Optional default value. 
+                XML.get("value")        # User set value, and optional initial value. Can be different than default.
+        )
+
+    # Clean entry for different value types.
+    # TODO: fully implement and enforce.
+    def _cleanValue(self, val:any):
+        if not self.type:
+            self.type="str"
+        type_name = self.type.strip().lower()
+        v:any = val
+        try:
+            # Be very generous on string type.
+            if type_name is None or type_name == "" or type_name.startswith("str") or type_name.startswith("text") or type_name.startswith("txt"):
+                self.type="str"
+                v = val
+            elif type_name.startswith("int"):
+                self.type="int"
+                v = int(val)
+            elif type_name.startswith("float"):
+                self.type="float"
+                v = float(val)
+            elif type_name.startswith("bool"):
+                self.type="bool"
+                # Be generous on boolean values.
+                if str(val).strip().lower() in [1,-1,'1','-1','t','y','true','yes','on']:
+                    v=True
+                else:
+                    v=False
+        except:
+            return None
+
+        return v
+
+
+    def loadXml(self, name:str, desc:str, data_type:str, size, min, max, default, value):
+        self.name:str=name
+        self.desc:str=desc
+        self.type:str=data_type
+
+        self.min:float=float(min) if min else None
+        self.max:float=float(max) if max else None
+        self.size:int=int(size) if size else None
+        self.default:str=self._cleanValue(default)
+        self.value:str=self._cleanValue(value)
+        if self.value is None:
+            self.value = value = self.default
+        
+
 DISABLED_MARKER = "disabled.txt"
 class Mod:
     """Details about a specific mod (name, description)"""
@@ -106,7 +169,10 @@ class Mod:
         self.gameInfo = gameInfo
         self._mappedIDs = []
         self.enabled = not os.path.isfile(os.path.join(self.path, DISABLED_MARKER))
+        self.variables:dict = {}
+        self.info_file = info_file
         self.loadInfo(info_file)
+        
 
     def loadInfo(self, infoFile):
         
@@ -129,6 +195,7 @@ class Mod:
             info = ElementTree.parse(infoFile)
             mod = info.getroot()
 
+            self.info_xml = info
             self.name = _sanitize(mod.find("name"))
             self.description = _sanitize(mod.find("description"))
             
@@ -138,7 +205,19 @@ class Mod:
             self.website = _optional("website")
             self.updates = _optional("updates")
             self.prefix = int(_optional("modid") or "0")
-            
+
+            # feature request #4, user configuration.
+            self.config_xml = mod.find("config")
+            if self.config_xml:
+                all_var = self.config_xml.findall("var")
+                if all_var and len(all_var)>0:
+                    self.variables=[]
+                    for var in all_var:
+                        confVar = ModConfigVar(var)
+                        if confVar:
+                            self.variables.append(confVar)
+                        confVar=None
+
             self.verifyLoaderVersion(mod)
             self.verifyGameVersion(mod, self.gameInfo)
 
@@ -149,7 +228,20 @@ class Mod:
             ui.log.log("    Failed to parse info file")
 
         ui.log.log("    Finished loading {}".format(self.name))
-    
+
+    def saveConfig(self):         
+        if self.config_xml:
+            all_var = self.config_xml.findall("var")
+            if all_var and len(all_var)>0:
+                for var in self.variables:
+                    v = self.config_xml.findall("./var[@name='" + var.name + "']")
+                    if v :
+                        v[0].set("value",str(var.value))
+
+            # config_xml is a section of info_xml
+            self.info_xml.write(self.info_file)
+
+
     def enable(self):
         try:
             os.unlink(os.path.join(self.path, DISABLED_MARKER))

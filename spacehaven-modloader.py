@@ -8,8 +8,7 @@ import traceback
 import winreg
 from collections import OrderedDict
 from tkinter import *
-from tkinter import filedialog, messagebox
-
+from tkinter import filedialog, messagebox, ttk, font, scrolledtext
 from steamfiles import acf
 
 import loader.extract
@@ -19,6 +18,7 @@ import ui.header
 import ui.launcher
 import ui.log
 import version
+from ui.scrolledlistbox import ScrolledListbox
 
 POSSIBLE_SPACEHAVEN_LOCATIONS = [
     # MacOS
@@ -44,65 +44,113 @@ POSSIBLE_SPACEHAVEN_LOCATIONS = [
 ]
 DatabaseHandler = ui.database.ModDatabase
 
+
 class Window(Frame):
     def __init__(self, master=None):
         Frame.__init__(self, master)
         self.master = master
 
         self.master.title("Space Haven Mod Loader v{}".format(version.version))
-        self.master.bind('<FocusIn>', self.focus)
+        # self.master.bind('<FocusIn>', self.focus)
+
 
         self.headerImage = PhotoImage(data=ui.header.image, width=1680, height=30)
         self.header = Label(self.master, bg='black', image=self.headerImage)
         self.header.pack(fill=X, padx=0, pady=0)
 
         self.pack(fill=BOTH, expand=1, padx=4, pady=4)
-        
+
+        self.sizegrip = ttk.Sizegrip(master).pack(side=RIGHT)
+
+        # Used later when binding events.
+        # This prevents some obscure bugs.
+        closure_self:Window = self
+
         # separator
         #Frame(self, height=1, bg="grey").pack(fill=X, padx=4, pady=8)
 
+        ##########################################################################################
+        #### modBrowser - Center container for the mod list, details, and config.             ####
+        ##########################################################################################
 
-#        self.modLabel = Label(self, text="Installed mods", anchor=NW)
-#        self.modLabel.pack(fill=X, padx=4, pady=4)
+        modBrowser = self.modBrowser = PanedWindow(self
+            , orient=HORIZONTAL
+            , relief=GROOVE
+            , borderwidth=4
+            , sashcursor='sb_h_double_arrow'
+            , sashrelief=SOLID  #choices: RAISED, SUNKEN, FLAT, RIDGE, GROOVE, SOLID
+            , sashwidth=8
+            , sashpad=8 )
+        modBrowser.pack(fill=BOTH, expand=1)
 
-        self.modBrowser = Frame(self)
-        
-        # left side mods list
-        self.modListFrame = Frame(self.modBrowser)
-        self.modList = Listbox(self.modListFrame, height=0, selectmode=SINGLE, activestyle = NONE)
-        self.modList.bind('<<ListboxSelect>>', self.showCurrentMod)
-        self.modList.pack(fill=BOTH, expand=1, padx=4, pady=4)
+        # MOD SELECTION LISTBOX (left pane)
+        modList = self.modList = ScrolledListbox(modBrowser, selectmode=SINGLE) # , activestyle=NONE )
+        def evt_ModList_ListboxSelect( evt ):
+            w = evt.widget
+            sel = w.curselection()
+            # Handle problem of this event fireing when Listbox loses focus.
+            if sel is None or len(sel)==0:
+                return
+            index = int(w.curselection()[0])
+            value = w.get(index)
+            closure_self.showCurrentMod(evt)
 
-        self.modListFrame.pack(side=LEFT, fill=Y, padx=4, pady=4)
-        
-        # right side mod info
-        self.modDetailsFrame = Frame(self.modBrowser)
-        frame = Frame(self.modDetailsFrame)
-        self.modEnableDisable = Button(frame, text="Enable", command=self.toggle_current_mod)
+        modList.bind('<<ListboxSelect>>', evt_ModList_ListboxSelect)
+        modBrowser.add(modList)
+
+        # MOD DETAILS CONTAINER (right pane)
+        # Ar vertical paned window inside a horizontal paned window.
+        modDetailsWindow = self.modDetailsWindow =  PanedWindow(self
+            , orient=VERTICAL
+            , relief=GROOVE
+            , borderwidth=4
+            , sashcursor='sb_v_double_arrow'
+            , sashrelief=SOLID  #choices: RAISED, SUNKEN, FLAT, RIDGE, GROOVE, SOLID
+            , sashwidth=8
+            , sashpad=4 )
+        modBrowser.add(modDetailsWindow)
+
+        # MOD DETAILS - Title and Description (top subpane)
+        modDetailsFrame = Frame(modDetailsWindow)
+        modDetailsWindow.add(modDetailsFrame)
+
+        modDetailTopBar = Frame(modDetailsFrame)
+        self.modDetailsName = Label(modDetailTopBar, font="TkDefaultFont 14 bold", anchor=NW)
+        self.modDetailsName.pack(side=LEFT, padx=4, pady=4)
+
+        self.modEnableDisable = Button(modDetailTopBar, text="Enable", anchor=NE, command=self.toggle_current_mod)
         self.modEnableDisable.pack(side = RIGHT, padx=4, pady=4)
-        
-        self.modDetailsName = Label(frame, font="TkDefaultFont 14 bold", anchor=W)
-        self.modDetailsName.pack(fill = X, padx=4, pady=4)
-        frame.pack(fill = X, padx=4, pady=4)
-        
-        self.modDetailsDescription = Text(self.modDetailsFrame, wrap=WORD, font="TkDefaultFont", height=0)
-        self.modDetailsDescription.pack(fill=BOTH, expand=1, padx=4, pady=4)
+        modDetailTopBar.pack(side=TOP,fill=X,padx=4,pady=4)
 
-        self.modDetailsFrame.pack(fill=BOTH, expand=1, padx=4, pady=4)
+        self.modDetailsDescription = scrolledtext.ScrolledText(modDetailsFrame, wrap=WORD)
+        self.modDetailsDescription.pack(side=TOP,fill=BOTH, expand=TRUE)
 
-        self.modBrowser.pack(fill=BOTH, expand=1, padx=0, pady=0)
-        
+        modDetailsWindow.add(modDetailsFrame,minsize=100)
+
+        # Create Bottom frame placeholder for later.
+        # This is populated when a mod is selected in the Listbox.
+        self.modConfigFrame:Frame = Frame(modDetailsWindow)
+
+
         # separator
-        Frame(self, height=1, bg="grey").pack(fill=X, padx=4, pady=8)
-        
+        #Frame(self, height=1, bg="grey").pack(fill=X, padx=4, pady=8)
+        #ttk.Separator(self,orient='horizontal').pack(fill=X, padx=4, pady=8)
+
+        ##########################################################################################
+        #### Footer with Buttons                                                              ####
+        ##########################################################################################
+
+        # buttons at the bottom
+        buttonFrame = Frame(self)#.pack(fill = X, padx = 4, pady = 8)
+
         # launcher
         self.launchButton_default_text = "LAUNCH!"
-        self.launchButton = Button(self, text=self.launchButton_default_text, command=self.launch_wrapper, height = 5)
-        self.launchButton.pack(fill=X, padx=4, pady=4)
-        
+        self.launchButton = Button(buttonFrame, text=self.launchButton_default_text, command=self.launch_wrapper, height = 2, font=font.Font(size = 14, weight = "bold") )
+        self.launchButton.pack(fill=X, padx=4, pady=4 )
 
         #Frame(self, height=1, bg="grey").pack(fill=X, padx=4, pady=8)
-        self.spacehavenPicker = Frame(self)#.pack(fill=X, padx=4, pady=4)
+        self.spacehavenPicker = Frame(buttonFrame)
+        self.spacehavenPicker.pack(fill=X, padx=4, pady=4)
         self.spacehavenBrowse = Button(self.spacehavenPicker, text="Find game...", command=self.browseForSpacehaven)
         self.spacehavenBrowse.pack(side = LEFT, padx=8, pady=4)
 
@@ -110,38 +158,34 @@ class Window(Frame):
         #self.spacehavenGameLabel.pack(side = LEFT, padx=4, pady=4)
         # game path
         self.spacehavenText = Entry(self.spacehavenPicker)
+
         # damn cant align properly with the "find game" button...
         self.spacehavenText.pack(fill = X, padx=4, pady=4, anchor = S)
 
         self.spacehavenPicker.pack(fill=X, padx=0, pady=0)
         Frame(self, height=1, bg="grey").pack(fill=X, padx=4, pady=8)
 
-
-        # buttons at the bottom
-        #buttonFrame = Frame(self).pack(fill = X, padx = 4, pady = 8)
-        self.quitButton = Button(self, text="Quit", command=self.quit)
+        self.quitButton = Button(buttonFrame, text="Quit", command=self.quit)
         self.quitButton.pack(side=RIGHT, expand = False, padx=8, pady=4)
-        #self.quitButton.grid(column = 2, padx=4, pady=4)
         
-        self.annotateButton = Button(self, text="Annotate XML", command = lambda: self.start_background_task(self.annotate, "Annotating"))
+        self.annotateButton = Button(buttonFrame, text="Annotate XML", command = lambda: self.start_background_task(self.annotate, "Annotating"))
         self.annotateButton.pack(side=RIGHT, expand = False, padx=8, pady=4)
         
-        self.extractButton = Button(self, text="Extract game assets", command = lambda: self.start_background_task(self.extract_assets, "Extracting"))
+        self.extractButton = Button(buttonFrame, text="Extract game assets", command = lambda: self.start_background_task(self.extract_assets, "Extracting"))
         self.extractButton.pack(side=RIGHT, expand = False, padx=8, pady=4)
-        #self.extractButton.grid(column = 0, padx=4, pady=4)
         
-        self.modListOpenFolder = Button(self, text="Open Mods Folder", command=self.openModFolder)
+        self.modListOpenFolder = Button(buttonFrame, text="Open Mods Folder", command=self.openModFolder)
         self.modListOpenFolder.pack(side = RIGHT, expand = False, padx=8, pady=4)
-        #self.modListOpenFolder.grid(column = 1, padx=4, pady=4)
 
-        self.modListRefresh = Button(self, text="Refresh Mods", command=self.refreshModList)
+        self.modListRefresh = Button(buttonFrame, text="Refresh Mods", command=self.refreshModList)
         self.modListRefresh.pack(side = RIGHT, expand = False, padx=8, pady=4)
-        #self.modListOpenFolder.grid(column = 1, padx=4, pady=4)
         
-        self.quickLaunchClear = Button(self, text="Clear Quicklaunch file", command=self.clear_quick_launch)
+        self.quickLaunchClear = Button(buttonFrame, text="Clear Quicklaunch file", command=self.clear_quick_launch)
         self.quickLaunchClear.pack(side = RIGHT, expand = False, padx=8, pady=4)
-        #self.modListOpenFolder.grid(column = 1, padx=4, pady=4)
-        
+
+        buttonFrame.pack(fill = X, padx = 4, pady = 8)
+
+
         self.autolocateSpacehaven()
 
     def autolocateSpacehaven(self):
@@ -260,10 +304,10 @@ class Window(Frame):
             )
         )
     
-    def focus(self, _arg=None):
-        # disabled, refreshes too much and resets the selection
-        #self.refreshModList()
-        pass
+    #def focus(self, _arg=None):
+    #    # disabled, refreshes too much and resets the selection
+    #    # self.refreshModList()
+    #    pass
 
     def refreshModList(self):
         try:
@@ -307,8 +351,8 @@ class Window(Frame):
             selected = 0
         else:
             selected = self.modList.curselection()[0]
-        
-        return DatabaseHandler.getRegisteredMods()[self.modList.curselection()[0]]
+
+        return DatabaseHandler.getRegisteredMods()[selected]
             
     def showCurrentMod(self, _arg=None):
         self.showMod(self.selected_mod())
@@ -332,8 +376,69 @@ class Window(Frame):
         self.modDetailsDescription.delete(1.0, END)
         self.modDetailsDescription.insert(END, description)
         self.modDetailsDescription.config(state="disabled")
+
+    def create_ModConfigVariableEntry(self, configFrame:Frame, mod:ui.database.Mod, var:ui.database.ModConfigVar):
+        # TODO: Maybe change this to use grid instead of pack for better presentation?
+        valFrame = Frame(configFrame)
+        # label for variable description
+        Label(valFrame,text=var.desc).pack(side=LEFT)
+
+        # Entry for value (currently only text)
+        tk_value = StringVar(valFrame, value=var.value)
+        def _value_update(name, index, mode, mod, var, tk_value):
+            var.value = tk_value.get()
+
+        tk_value.trace('w', lambda name,index,mode : _value_update(name,index,mode,mod,var,tk_value) )
+        entryValue = Entry(valFrame,textvariable=tk_value)
+        entryValue.pack(side=RIGHT)
+
+        # Link the UI variable back to the config variable for later.
+        var.ui_stringvar = tk_value
+
+        # label for debug information
+        #Label(valFrame,text="").pack(side=RIGHT)
+
+        valFrame.pack(fill=X)
+        return
+
+    def reset_ModConfigVariables(self):
+        mod = self.selected_mod()
+        if not mod or not mod.variables:
+            return
+        for var in mod.variables:
+            var.value = var.default
+            var.ui_stringvar.set(var.default)
+        self.modConfigFrame.update()
+
+    def update_mod_config_ui(self,mod:ui.database.Mod):
+        try:
+            self.modConfigFrame.destroy()
+        except:
+            pass
         
-    def showMod(self, mod):
+        try:
+            if len(mod.variables)>0:
+                self.modConfigFrame = Frame(self.modDetailsWindow)
+            else:
+                return
+        except:
+            return
+
+        # Reset button at top.
+        resetFrame = Frame(self.modConfigFrame)
+        resetButton = Button(resetFrame, text="Reset to Defaults", anchor=NE, command=self.reset_ModConfigVariables)
+        resetButton.pack(side = RIGHT, padx=4, pady=4)
+        resetFrame.pack(fill=X)
+
+        for v in mod.variables:
+            self.create_ModConfigVariableEntry( self.modConfigFrame, mod, v)
+
+        self.modConfigFrame.update()
+        self.modDetailsWindow.add(self.modConfigFrame, minsize=self.modConfigFrame.winfo_reqheight())
+        self.modDetailsWindow.update()
+
+
+    def showMod(self, mod:ui.database.Mod):
         if not mod:
             return self.showModError("No mods found", "Please install some mods into your mods folder.")
         
@@ -347,6 +452,7 @@ class Window(Frame):
         self.modDetailsName.config(text = title)
         self.modEnableDisable.config(text = command_label)
         self.update_description(mod.getDescription())
+        self.update_mod_config_ui(mod)
     
     def showModError(self, title, error):
         self.modDetailsName.config(text = title)
@@ -500,10 +606,19 @@ class Window(Frame):
             messagebox.showerror("Error during quick launch", traceback.format_exc(3))
     
     def patchAndLaunch(self):
-        activeModPaths = [mod.path for mod in DatabaseHandler.getActiveMods()]
+        #activeModPaths = [mod.path for mod in DatabaseHandler.getActiveMods()]
+
+        activeMods = DatabaseHandler.getActiveMods()
+
+        # If any active mods have variables, save them.
+        for mod in activeMods:
+            if mod.variables:
+                #mod.info_xml.write(mod.info_file)
+                mod.saveConfig()
+
         
         try:
-            loader.load.load(self.jarPath, activeModPaths, self.current_mods_signature())
+            loader.load.load(self.jarPath, activeMods, self.current_mods_signature())
             ui.launcher.launchAndWait(self.gamePath)
             loader.load.unload(self.jarPath)
         except Exception as ex:
@@ -531,12 +646,14 @@ def handleException(type, value, trace):
 
 if __name__ == "__main__":
     root = Tk()
-    root.geometry("890x639")
+    root.geometry("890x669")
     root.report_callback_exception = handleException
 
     # HACK: Button labels don't appear until the window is resized with py2app
     def fixNoButtonLabelsBug():
-        root.geometry("890x640")
+        root.geometry("890x670")
+
+    root.resizable(True, True)
 
     app = Window(root)
     root.update()

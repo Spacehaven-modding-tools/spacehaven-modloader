@@ -1,0 +1,35 @@
+<mod>
+	<name>Electric Slide</name>
+	<author>WP</author>
+
+	<gameVersions>
+		<v>0.11.2</v>
+	</gameVersions>
+
+	<minimumLoaderVersion>0.9.2</minimumLoaderVersion>
+
+	<version>21.04.23</version>
+
+	<description><![CDATA[
+Adjust all power buildings.
+Multiply generator,solar,battery,and node values by the specified amount.
+Generator output and Solar output are separate.
+All other variables apply the multiplier to all power related buildings.
+
+Only enter numeric values.
+Clear quicklaunch file after changing values.
+
+First example of using Mod {Variables}!
+]]>
+	</description>
+
+	<config>
+		<var name="{GeneratorOutput}"  default="1" >Generator Output Multiplier</var>
+		<var name="{SolarOutput}"  default="1" >Solar Output Multiplier</var>
+		<var name="{PowerRadius}"  default="1">Power Radius Multiplier</var>
+		<var name="{EnergyCapacity}"  default="1">Energy Capacity Multiplier</var>
+		<var name="{LinkDistance}"  default="1">Link Distance Multiplier</var>
+		<var name="{MaxLinks}"  default="1">Max Links Multiplier</var>
+	</config>
+
+</mod>

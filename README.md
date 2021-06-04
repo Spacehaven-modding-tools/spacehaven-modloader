@@ -7,7 +7,7 @@ It is **not associated with Bugbyte or Space Haven in any way** other than that 
 
 ## Getting Started
 
-Download the [latest release](https://github.com/PhiR42/spacehaven-modloader/releases/download/0.0.7/spacehaven-modloader-win-amd64.zip) and fire it up.
+Download the [latest release](https://github.com/Tahvohck/spacehaven-modloader/releases) and fire it up.
 
 ![Screenshot](/tools/screenshot.png?raw=true)
 
