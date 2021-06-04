@@ -138,7 +138,7 @@ def _detect_textures(coreLibrary, modLibrary, mod):
         sumA:int = 0  # Total Area
         sumW:int = 0  # Total Width
         sumH:int = 0  # Total Height
-        minRequiredDimension = 1024
+        minRequiredDimension = 2048
         # First get all the files and pack them into a new texture square
         for regionName in needs_autogeneration:
             (w, h, rows, info) = png.Reader(textures_path + "/" + regionName).asRGBA()
