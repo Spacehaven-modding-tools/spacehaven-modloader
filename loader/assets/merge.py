@@ -71,6 +71,10 @@ def _detect_textures(coreLibrary, modLibrary, mod):
 
     #FIXME verify that there's only one file
     # TODO Maybe don't require only a single file?
+    textures_count = len(modLibrary['library/textures'])
+    if len(modLibrary['library/textures']) != 1:
+        ui.log.log(f"    Expected 1 library/textures but found {textures_count}")
+
     textures_mod = modLibrary['library/textures'][0]
 
     # Allocate any manually defined texture regions into the CTC lib
@@ -87,6 +91,9 @@ def _detect_textures(coreLibrary, modLibrary, mod):
     if not mapping_n_region and not autoAnimations:
         return modded_textures
 
+    ##########################################################################
+    # Custom Mod Textures processing starts here
+    ##########################################################################
     needs_autogeneration = set()
     for animation_chunk in modLibrary['library/animations']:
         # iterate on autogeneration nodes
@@ -116,27 +123,44 @@ def _detect_textures(coreLibrary, modLibrary, mod):
             asset.set('a', new_id)
 
     if len(needs_autogeneration):
+        image_count = len(needs_autogeneration)
+
         regionsNode = textures_mod.find("//regions")
         texturesNode = textures_mod.find("//textures")
-        textureID = ui.database.ModDatabase.getMod(mod).prefix
+        textureID:int = ui.database.ModDatabase.getMod(mod).prefix
+
+        # Catch missing Modder ID.  Still try to process and move forward.
+        if not textureID or textureID <= 0:
+            ui.log.log("ERROR: info.xml is missing <modid>.  Mod Author should set this to their Discord ID for all mods they make.")
+            textureID = 9999
+
         packer = rectpack.newPacker(rotation=False)
-        sum = 0
-        minRequiredDimension = 0
+        sumA:int = 0  # Total Area
+        sumW:int = 0  # Total Width
+        sumH:int = 0  # Total Height
+        minRequiredDimension = 1024
         # First get all the files and pack them into a new texture square
         for regionName in needs_autogeneration:
             (w, h, rows, info) = png.Reader(textures_path + "/" + regionName).asRGBA()
             packer.add_rect(w, h, regionName)
             minRequiredDimension = max(minRequiredDimension, w, h)
-            sum += (w * h)
+            sumA += (w * h)
+            sumW += w
+            sumH += h
 
+        # The absolute largest size that can be needed to fit everything.
+        maxRequiredDimension = int(math.ceil(math.sqrt(sumH*sumW)))
+
+        # Increase size estimate until it is large enough.
+        size:int = 0
         sizeEstimate = 1.2
-        size = max(int(math.sqrt(sum) * sizeEstimate), minRequiredDimension)
-
-        packer.add_bin(size, size)
-        packer.pack()
-        if len(needs_autogeneration) != len(packer.rect_list()):
-            raise IndexError(   f"Unable to pack all {len(needs_autogeneration)} regions with size estimate {sizeEstimate}" + 
-                                f", was able to pack {len(packer.rect_list())} rectangles. Please file a bug report.")
+        basearea = max( int(math.sqrt(sumA)) , minRequiredDimension )
+        while size < maxRequiredDimension and image_count != len( packer.rect_list() or [] ) :
+            size = int(basearea * sizeEstimate)
+            packer.reset()
+            packer.add_bin(size, size)
+            packer.pack()
+            sizeEstimate += 0.1
 
         newTex = lxml.etree.SubElement(texturesNode, "t")
         newTex.set("i", str(textureID))
@@ -144,16 +168,30 @@ def _detect_textures(coreLibrary, modLibrary, mod):
         newTex.set("h", str(size))
         coreLibrary['_custom_textures_cim'][str(textureID)] = newTex.attrib
 
+        # prepare to export packed PNG to mod directory.
+        kwargs = {}
+        kwargs['create'] = True
+        kwargs['width'] = size
+        kwargs['height'] = size
+        export_path = os.path.join(mod, f"custom_texture_{textureID}.png")
+        custom_png:Texture = Texture( export_path, **kwargs )
+
         packedRectsSorted = {}
         for rect in packer.rect_list():
             b, x, y, w, h, rid = rect
             remappedID = mapping_n_region[rid]
             packedRectsSorted[remappedID] = (str(x), str(y), str(w), str(h), str(rid))
+            custom_png.pack_png( os.path.join(textures_path,rid) , x,y,w,h )
+
+        # write back the cim file as png for debugging
+        # this only includes textures from this mod, not the final generated cim.
+        custom_png.export_png(export_path)
+
         # NOT YET SORTED
         packedRectsSorted = {k: v for k,v in sorted(packedRectsSorted.items())}
         # NOW SORTED: We need this to make sure the IDs are added to the textures file in the correct order
 
-        for remappedID, data in packedRectsSorted.items():
+        for remappedID, data in packedRectsSorted.items(): 
             x, y, w, h, regionFileName = data
             remapData = modded_textures[remappedID]
             newNode = lxml.etree.SubElement(regionsNode, "re")
@@ -164,6 +202,7 @@ def _detect_textures(coreLibrary, modLibrary, mod):
             newNode.set("w", w)
             newNode.set("h", h)
             newNode.set("file", regionFileName)
+
 
     for asset in textures_mod.xpath("//re[@n]"):
         mod_local_id = asset.get('n')
@@ -278,12 +317,8 @@ def mods(corePath, modPaths):
                 kwargs['width'] = coreLibrary['_custom_textures_cim'][page]['w']
                 kwargs['height'] = coreLibrary['_custom_textures_cim'][page]['h']
                 extra_assets.append('library/' + cim_name)
+                
             cims[page] = Texture(os.path.join(corePath, 'library', cim_name), **kwargs)
-
-            reexport_cims[page] = set()
-
-        # write back the cim file as png for debugging
-        reexport_cims[page].add(os.path.normpath(mod + "/textures"))
 
         x = int(region.get("x"))
         y = int(region.get("y"))
@@ -297,8 +332,6 @@ def mods(corePath, modPaths):
     for page in cims:
         ui.log.log("  Writing {}.cim...".format(page))
         cims[page].export_cim(os.path.join(corePath, 'library', '{}.cim'.format(page)))
-        for path in reexport_cims[page]:
-            cims[page].export_png(os.path.join(path, 'modded_cim_{}.png'.format(page)))
 
     return extra_assets
 
