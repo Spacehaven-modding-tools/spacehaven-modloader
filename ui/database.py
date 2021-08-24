@@ -129,13 +129,13 @@ class ModConfigVar:
             elif type_name.startswith("float"):
                 self.type="float"
                 v = float(val)
-            elif type_name.startswith("bool"):
+            elif type_name.startswith("bool"): 
                 self.type="bool"
-                # Be generous on boolean values.
+                # Be generous on boolean values. 
                 if str(val).strip().lower() in [1,-1,'1','-1','t','y','true','yes','on']:
-                    v=True
+                    v = str(var.max)
                 else:
-                    v=False
+                    v = str(var.min)
         except:
             return None
 
@@ -149,6 +149,8 @@ class ModConfigVar:
 
         self.min:float=float(min) if min else None
         self.max:float=float(max) if max else None
+        self.min:bool=self._cleanValue(min)
+        self.max:bool=self._cleanValue(max)
         self.size:int=int(size) if size else None
         self.default:str=self._cleanValue(default)
         self.value:str=self._cleanValue(value)
