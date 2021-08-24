@@ -423,14 +423,21 @@ class Window(Frame):
         # label for variable description
         Label(valFrame,text=var.desc).pack(side=LEFT)
 
-        # Entry for value (currently only text)
+        # Entry for value 
         tk_value = StringVar(valFrame, value=var.value)
         def _value_update(name, index, mode, mod, var, tk_value):
             var.value = tk_value.get()
+        # Checkbox option, uses on=var.max & off=var.min in database.py
+        if (var.type == "bool"):
+            c1 = Checkbutton(valFrame,variable=tk_value)
+            c1.pack()
+        # Else uses entry text
+        else:
+            entryValue = Entry(valFrame,textvariable=tk_value)
+            entryValue.pack(side=RIGHT)
 
         tk_value.trace('w', lambda name,index,mode : _value_update(name,index,mode,mod,var,tk_value) )
-        entryValue = Entry(valFrame,textvariable=tk_value)
-        entryValue.pack(side=RIGHT)
+
 
         # Link the UI variable back to the config variable for later.
         var.ui_stringvar = tk_value
