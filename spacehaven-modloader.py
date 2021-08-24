@@ -206,7 +206,6 @@ class Window(Frame):
 
         buttonFrame.pack(fill = X, padx = 4, pady = 8)
 
-
         self.autolocateSpacehaven()
 
     def autolocateSpacehaven(self):
@@ -427,9 +426,9 @@ class Window(Frame):
         tk_value = StringVar(valFrame, value=var.value)
         def _value_update(name, index, mode, mod, var, tk_value):
             var.value = tk_value.get()
-        # Checkbox option, uses on=var.max & off=var.min in database.py
-        if (var.type == "bool"):
-            c1 = Checkbutton(valFrame,variable=tk_value)
+        # Checkbox option
+        if (var.type == "toggle"):
+            c1 = Checkbutton(valFrame,variable=tk_value,onvalue=var.max,offvalue=var.min)
             c1.pack()
         # Else uses entry text
         else:
