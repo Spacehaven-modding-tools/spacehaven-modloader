@@ -430,7 +430,7 @@ class Window(Frame):
 
         tk_value.trace('w', lambda name,index,mode : _value_update(name,index,mode,mod,var,tk_value) )
         entryValue = Entry(valFrame,textvariable=tk_value)
-        entryValue.pack(side=RIGHT)
+        entryValue.pack(side=LEFT)
 
         # Link the UI variable back to the config variable for later.
         var.ui_stringvar = tk_value
