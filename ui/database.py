@@ -133,9 +133,9 @@ class ModConfigVar:
                 self.type="bool"
                 # Be generous on boolean values. 
                 if str(val).strip().lower() in [1,-1,'1','-1','t','y','true','yes','on']:
-                    v = True
+                    v=True
                 else:
-                    v = False
+                    v=False
             elif type_name.startswith("toggle"): 
                 self.type="toggle"
                 # Be generous on boolean values. 
