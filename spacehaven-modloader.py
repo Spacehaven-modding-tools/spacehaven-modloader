@@ -107,6 +107,7 @@ class Window(Frame):
 
         # MOD SELECTION LISTBOX (left pane)
         modList = self.modList = ScrolledListbox(modBrowser, selectmode=SINGLE) # , activestyle=NONE )
+        modList.configure(exportselection=False)
         def evt_ModList_ListboxSelect( evt ):
             w = evt.widget
             sel = w.curselection()
@@ -452,9 +453,12 @@ class Window(Frame):
         if not mod or not mod.variables:
             return
         for var in mod.variables:
-            var.value = var.default
-            var.ui_stringvar.set(var.default)
-        self.modConfigFrame.update()
+            if (var.type == "toggle"):
+                var.ui_stringvar.set(var.default)
+            else:
+                var.value = var.default
+                var.ui_stringvar.set(var.default)
+            self.modConfigFrame.update()
 
     def update_mod_config_ui(self,mod:ui.database.Mod):
         try:
@@ -482,7 +486,6 @@ class Window(Frame):
         self.modConfigFrame.update()
         self.modDetailsWindow.add(self.modConfigFrame, minsize=self.modConfigFrame.winfo_reqheight())
         self.modDetailsWindow.update()
-
 
     def showMod(self, mod:ui.database.Mod):
         if not mod:
