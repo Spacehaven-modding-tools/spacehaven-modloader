@@ -455,7 +455,7 @@ class Window(Frame):
         for var in mod.variables:
             var.ui_stringvar.set(var.default)
             var.value = var.default
-            self.modConfigFrame.update()
+        self.modConfigFrame.update()
 
     def update_mod_config_ui(self,mod:ui.database.Mod):
         try:
