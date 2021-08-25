@@ -131,7 +131,7 @@ class ModConfigVar:
                 v = float(val)
             elif type_name.startswith("bool"):
                 self.type="bool"
-                # Be generous on boolean values. 
+                # Be generous on boolean values.
                 if str(val).strip().lower() in [1,-1,'1','-1','t','y','true','yes','on']:
                     v=True
                 else:
