@@ -159,7 +159,7 @@ class ModConfigVar:
         self.min:toggle=str(min) if min else None
         self.max:toggle=str(max) if max else None
         self.size:int=int(size) if size else None
-        self.default:str=self._cleanValue(default)
+        self.default:str=str(default) if default else None
         self.value:str=self._cleanValue(value)
         if self.value is None:
             self.value = value = self.default
