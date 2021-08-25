@@ -453,11 +453,8 @@ class Window(Frame):
         if not mod or not mod.variables:
             return
         for var in mod.variables:
-            if (var.type == "toggle"):
-                var.ui_stringvar.set(var.default)
-            else:
-                var.value = var.default
-                var.ui_stringvar.set(var.default)
+            var.ui_stringvar.set(var.default)
+            var.value = var.default
             self.modConfigFrame.update()
 
     def update_mod_config_ui(self,mod:ui.database.Mod):
