@@ -5,11 +5,14 @@ import distutils.version
 from operator import truediv
 import os
 from xml.etree import ElementTree
+import json
 
 import version
 
 import ui.gameinfo
 import ui.log
+import shutil
+
 
 import tkinter as tk
 
@@ -26,6 +29,7 @@ class ModDatabase:
         ModDatabase.__lastInstance = self
 
     def locateMods(self):
+
         self.mods = []
         ModDatabase.Prefixes = {}
 
@@ -37,7 +41,8 @@ class ModDatabase:
                 modPath = os.path.join(path, modFolder)
                 if os.path.isfile(modPath):
                     # TODO add support for zip files ? unzip them on the fly ?
-                    continue  # don't load logs, prefs, etc
+                    #continue  # don't load logs, prefs, etc
+                    pass
                 
                 # TODO Pass the mod path to Mod() instead of the info_file and let it handle
                 # the info file check. It already does this! Let it do its job!
@@ -47,8 +52,21 @@ class ModDatabase:
                 if not os.path.isfile(info_file):
                     # no info file, don't create a mod.
                     continue
+                
+                isJarMod = False
+                jarModFileName = ""
+                jarModDisabled = False
+                for file in os.listdir(modPath):
+                    if file.endswith(".jar"):
+                        isJarMod = True
+                        jarModFileName = file
 
-                newMod = Mod(info_file, self.gameInfo)
+                if isJarMod:
+                    newMod = JarMod(info_file, self.gameInfo, jarModFileName)
+                    if newMod.enabled:
+                        newMod.enable() # this has to be called in order to update config.json
+                else:
+                    newMod = Mod(info_file, self.gameInfo)
                 if newMod.prefix:
                     if newMod.prefix in ModDatabase.Prefixes and ModDatabase.Prefixes[newMod.prefix]:
                         ui.log.log(f"  Warning: Mod prefix {newMod.prefix} for mod {newMod.title()} is already in use.")
@@ -136,6 +154,13 @@ class ModConfigVar:
                     v=True
                 else:
                     v=False
+            elif type_name.startswith("toggle"): 
+                self.type="toggle"
+                # Be generous on boolean values. 
+                if str(val).strip().lower() in [1,-1,'1','-1','t','y','true','yes','on']:
+                    v = var.max
+                else:
+                    v = var.min
         except:
             return None
 
@@ -149,8 +174,10 @@ class ModConfigVar:
 
         self.min:float=float(min) if min else None
         self.max:float=float(max) if max else None
+        self.min:toggle=str(min) if min else None
+        self.max:toggle=str(max) if max else None
         self.size:int=int(size) if size else None
-        self.default:str=self._cleanValue(default)
+        self.default:str=str(default) if default else None
         self.value:str=self._cleanValue(value)
         if self.value is None:
             self.value = value = self.default
@@ -166,13 +193,18 @@ class Mod:
         
         # TODO add a flag to warn users about savegame compatibility ?
         self.name = os.path.basename(self.path)
+        self.version = ""
+        self.author = ""
+        self.website = ""
+        self.updates = ""
+        self.prefix = ""
         self.gameInfo = gameInfo
         self._mappedIDs = []
         self.enabled = not os.path.isfile(os.path.join(self.path, DISABLED_MARKER))
         self.variables:dict = {}
         self.info_file = info_file
         self.loadInfo(info_file)
-        
+        self.known_issues = ""
 
     def loadInfo(self, infoFile):
         
@@ -322,3 +354,74 @@ class Mod:
         ui.log.log("    Warning: {}".format(message))
         self.name += " [!]"
         self.description += "\nWARNING: {}!".format(message)
+
+class JarMod(Mod):
+    def __init__(self, info_file, gameInfo, jarModFileName):
+        super().__init__(info_file, gameInfo)
+        self.jarModFileName = jarModFileName
+        self.classPathName = self.path + "/" + jarModFileName
+
+    def enable(self):
+        try:
+            os.unlink(os.path.join(self.path, DISABLED_MARKER))
+        except:
+            pass
+
+        shutil.copyfile("aspectj-1.9.19.jar", self.path + "/../../aspectj-1.9.19.jar")
+        shutil.copyfile("aspectjweaver-1.9.19.jar", self.path + "/../../aspectjweaver-1.9.19.jar")
+
+        try:
+            f = open(self.path + "/../../config.json","r", encoding='utf-8')
+            jsonObj = json.load(f)
+            classPath = jsonObj["classPath"]
+            vmArgs = jsonObj["vmArgs"]
+            
+            # aspectj is required for .jar mods
+            if "aspectjweaver-1.9.19.jar" not in classPath:
+                classPath.insert(0, "aspectjweaver-1.9.19.jar")
+            if "aspectj-1.9.19.jar" not in classPath:
+                classPath.insert(1, "aspectj-1.9.19.jar")
+
+            if self.classPathName not in classPath:
+                classPath.insert(2, self.classPathName)
+
+            jsonObj["classPath"] = classPath
+                
+            if "-javaagent:./aspectjweaver-1.9.19.jar" not in vmArgs:
+                    vmArgs.insert(0, "-javaagent:./aspectjweaver-1.9.19.jar")
+            if "-XstartOnFirstThread" not in vmArgs:
+                    vmArgs.insert(0, "-XstartOnFirstThread")
+            if "--add-opens java.base/java.lang=ALL-UNNAMED" not in vmArgs:
+                    vmArgs.insert(0, "--add-opens java.base/java.lang=ALL-UNNAMED")
+
+            jsonObj["vmArgs"] = vmArgs
+
+            f.close()
+            open(self.path + "/../../config.json", 'w').close() # erase file
+            f = open(self.path + "/../../config.json","w", encoding='utf-8')
+            f.write(json.dumps(jsonObj, indent=4))
+            print("Updated config.json")
+
+            self.enabled = True
+        except:
+            pass
+    
+    def disable(self):
+        with open(os.path.join(self.path, DISABLED_MARKER), "w") as marker:
+            marker.write("this mod is disabled, remove this file to enable it again (or toggle it via the modloader UI)")
+        self.enabled = False
+
+        f = open(self.path + "/../../config.json","r", encoding='utf-8')
+        jsonObj = json.load(f)
+        classPath = jsonObj["classPath"]
+
+        if self.classPathName in classPath:
+            classPath.remove(self.classPathName)
+            jsonObj["classPath"] = classPath
+            f.close()
+            open(self.path + "/../../config.json", 'w').close() # erase file
+            f = open(self.path + "/../../config.json","w", encoding='utf-8')
+            f.write(json.dumps(jsonObj, indent=4))
+            print("Updated config.json")
+        
+    pass

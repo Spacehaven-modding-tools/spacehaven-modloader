@@ -5,7 +5,8 @@ import platform
 import subprocess
 import threading
 import traceback
-import winreg
+import vdf
+from pathlib import Path
 from collections import OrderedDict
 from tkinter import *
 from tkinter import filedialog, messagebox, ttk, font, scrolledtext
@@ -20,6 +21,7 @@ import ui.launcher
 import ui.log
 import version
 from ui.scrolledlistbox import ScrolledListbox
+from ui.database import JarMod
 
 POSSIBLE_SPACEHAVEN_LOCATIONS = [
     # MacOS
@@ -45,6 +47,27 @@ POSSIBLE_SPACEHAVEN_LOCATIONS = [
 ]
 DatabaseHandler = ui.database.ModDatabase
 
+#Frame with built in scrollbar. Used for MonConfigFrame
+class ScrollableFrame(ttk.Frame):
+    def __init__(self, container, *args, **kwargs):
+        super().__init__(container, *args, **kwargs)
+        canvas = Canvas(self)
+        scrollbar = ttk.Scrollbar(self, orient="vertical", command=canvas.yview)
+        self.scrollable_frame = ttk.Frame(canvas)
+
+        self.scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(
+                scrollregion=canvas.bbox("all")
+            )
+        )
+
+        canvas.create_window((0, 30), window=self.scrollable_frame, anchor="nw") 
+
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
 
 class Window(Frame):
     def __init__(self, master=None):
@@ -86,6 +109,7 @@ class Window(Frame):
 
         # MOD SELECTION LISTBOX (left pane)
         modList = self.modList = ScrolledListbox(modBrowser, selectmode=SINGLE) # , activestyle=NONE )
+        modList.configure(exportselection=False)
         def evt_ModList_ListboxSelect( evt ):
             w = evt.widget
             sel = w.curselection()
@@ -130,8 +154,7 @@ class Window(Frame):
 
         # Create Bottom frame placeholder for later.
         # This is populated when a mod is selected in the Listbox.
-        self.modConfigFrame:Frame = Frame(modDetailsWindow)
-
+        self.modConfigFrame = ScrollableFrame(modDetailsWindow) #Y30 used as default - see line 64
 
         # separator
         #Frame(self, height=1, bg="grey").pack(fill=X, padx=4, pady=8)
@@ -186,7 +209,6 @@ class Window(Frame):
 
         buttonFrame.pack(fill = X, padx = 4, pady = 8)
 
-
         self.autolocateSpacehaven()
 
     def autolocateSpacehaven(self):
@@ -204,40 +226,35 @@ class Window(Frame):
         except FileNotFoundError:
             ui.log.log("Unable to get last space haven location. Autolocating again.")
 
-        # Steam based locator (Windows)
+        # Find steam install location automagically
         try:
-            registry_path:str = "SOFTWARE\\WOW6432Node\\Valve\\Steam" if (platform.architecture()[0] == "64bit") else "SOFTWARE\\Valve\\Steam"
-            steam_path:str = winreg.QueryValueEx(winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, registry_path), "InstallPath")[0]
-            spacehaven_exe:str = r"\steamapps\common\SpaceHaven\spacehaven.exe"
+            steam_path = ""
+            game_executable = "spacehaven"
+            if platform.system() == "Windows":
+                # ONLY import winreg IF we are doing windows
+                import winreg
+                registry_path = "SOFTWARE\\WOW6432Node\\Valve\\Steam" if (platform.architecture()[0] == "64bit") else "SOFTWARE\\Valve\\Steam"
+                steam_path = winreg.QueryValueEx(winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, registry_path), "InstallPath")[0]
+                game_executable += ".exe"
+            if platform.system() == "Linux":
+                steam_path = Path(Path.home(), ".steam", "steam")
+            if platform.system() == "Darwin":
+                steam_path = Path(Path.home(), "Library", "Application Support", "Steam")
 
-            ''' DEPRECATED
-            library_folders = acf.load(open(steam_path + "\\steamapps\\libraryfolders.vdf"), wrapper=OrderedDict)
-            locations = [steam_path + "\\steamapps\\common\\SpaceHaven\\spacehaven.exe"]
-            for key, value in library_folders["LibraryFolders"].items():
-                if str.isnumeric(key): locations.append(value + "\\steamapps\\common\\SpaceHaven\\spacehaven.exe")
-            for location in locations:
-                if os.path.exists(location):
-                    self.locateSpacehaven(location)
-                    return
-            '''
-
-            def vdf_path_parse(libfile):
-                filestring:str = open(steam_path + r"\steamapps\libraryfolders.vdf").read()
-                paths = re.findall(r'\s*\"path\"\s*\"([^\"]*)', filestring)                      
-                return paths
-
-            library_folders = vdf_path_parse(open(steam_path + r"\steamapps\libraryfolders.vdf"))
-            locations = [steam_path + spacehaven_exe]
-            for value in library_folders:
-                locations.append( value.replace( "\\\\" , "\\" ) + spacehaven_exe)
-            for location in locations:
-                if os.path.exists(location):
-                    self.locateSpacehaven(location)
-                    return
+            libraryfolders_vdf = vdf.parse(open(str(Path(steam_path, "steamapps", "libraryfolders.vdf"))))["libraryfolders"]
+            for key in libraryfolders_vdf:
+                value = libraryfolders_vdf[key]
+                ui.log.log(str(value))
+                # let's see if the game is on the dir
+                if not value["apps"].get("979110"):
+                    continue
+                
+                self.locateSpacehaven(str(Path(value["path"], "steamapps", "common", "SpaceHaven", game_executable)))
 
         except FileNotFoundError:
             ui.log.log("Unable to locate Steam registry keys or library paths, aborting Steam autolocator")
 
+        # Brute force method
         for location in POSSIBLE_SPACEHAVEN_LOCATIONS:
             try: 
                 location = os.path.abspath(location)
@@ -346,7 +363,7 @@ class Window(Frame):
         
         mod_idx = 0
         for mod in DatabaseHandler.getRegisteredMods():
-            self.modList.insert(END, mod.name)
+            self.modList.insert(END, mod.title())
             mod.display_idx = mod_idx
             
             self.update_list_style(mod)
@@ -403,14 +420,21 @@ class Window(Frame):
         # label for variable description
         Label(valFrame,text=var.desc).pack(side=LEFT)
 
-        # Entry for value (currently only text)
+        # Entry for value 
         tk_value = StringVar(valFrame, value=var.value)
         def _value_update(name, index, mode, mod, var, tk_value):
             var.value = tk_value.get()
+        # Checkbox option
+        if (var.type == "toggle"):
+            c1 = Checkbutton(valFrame,variable=tk_value,onvalue=var.max,offvalue=var.min)
+            c1.pack()
+        # Else uses entry text
+        else:
+            entryValue = Entry(valFrame,textvariable=tk_value)
+            entryValue.pack(side=RIGHT)
 
         tk_value.trace('w', lambda name,index,mode : _value_update(name,index,mode,mod,var,tk_value) )
-        entryValue = Entry(valFrame,textvariable=tk_value)
-        entryValue.pack(side=RIGHT)
+
 
         # Link the UI variable back to the config variable for later.
         var.ui_stringvar = tk_value
@@ -426,8 +450,8 @@ class Window(Frame):
         if not mod or not mod.variables:
             return
         for var in mod.variables:
-            var.value = var.default
             var.ui_stringvar.set(var.default)
+            var.value = var.default
         self.modConfigFrame.update()
 
     def update_mod_config_ui(self,mod:ui.database.Mod):
@@ -438,25 +462,24 @@ class Window(Frame):
         
         try:
             if len(mod.variables)>0:
-                self.modConfigFrame = Frame(self.modDetailsWindow)
+                self.modConfigFrame = ScrollableFrame(self.modDetailsWindow)
             else:
                 return
         except:
             return
 
         # Reset button at top.
-        resetFrame = Frame(self.modConfigFrame)
+        resetFrame = Frame(self.modConfigFrame.scrollable_frame)
         resetButton = Button(resetFrame, text="Reset to Defaults", anchor=NE, command=self.reset_ModConfigVariables)
         resetButton.pack(side = RIGHT, padx=4, pady=4)
         resetFrame.pack(fill=X)
 
         for v in mod.variables:
-            self.create_ModConfigVariableEntry( self.modConfigFrame, mod, v)
+            self.create_ModConfigVariableEntry( self.modConfigFrame.scrollable_frame, mod, v)
 
         self.modConfigFrame.update()
         self.modDetailsWindow.add(self.modConfigFrame, minsize=self.modConfigFrame.winfo_reqheight())
         self.modDetailsWindow.update()
-
 
     def showMod(self, mod:ui.database.Mod):
         if not mod:
@@ -629,6 +652,16 @@ class Window(Frame):
         #activeModPaths = [mod.path for mod in DatabaseHandler.getActiveMods()]
 
         activeMods = DatabaseHandler.getActiveMods()
+        xmlMods = []
+
+        print(activeMods)
+        print(type(activeMods))
+
+        for mod in activeMods:
+            if isinstance(mod, JarMod):
+                continue
+            else:
+                xmlMods.append(mod)
 
         # If any active mods have variables, save them.
         for mod in activeMods:
@@ -638,7 +671,7 @@ class Window(Frame):
 
         
         try:
-            loader.load.load(self.jarPath, activeMods, self.current_mods_signature())
+            loader.load.load(self.jarPath, xmlMods, self.current_mods_signature())
             ui.launcher.launchAndWait(self.gamePath)
             loader.load.unload(self.jarPath)
         except Exception as ex:
@@ -661,7 +694,7 @@ def handleException(type, value, trace):
     ui.log.log(message)
 
     messagebox.showerror("Error", "Sorry, something went wrong!\n\n"
-                                  "Please open an issue at https://github.com/anatarist/spacehaven-modloader and attach logs.txt from your mods/ folder.")
+                                  "Please open an issue at https://github.com/CyanBlob/spacehaven-modloader and attach logs.txt from your mods/ folder.")
 
 
 if __name__ == "__main__":

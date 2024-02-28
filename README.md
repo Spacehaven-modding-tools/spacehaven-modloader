@@ -9,7 +9,7 @@ A possible official modding tool from Bugbyte in the future comes down to the fe
 
 ## Getting Started
 
-Download the [latest release](https://github.com/Spacehaven-modding-tools/spacehaven-modloader/releases) and fire it up.
+Download the [latest release](https://github.com/CyanBlob/spacehaven-modloader/releases) and fire it up.
 
 ![Screenshot](/tools/screenshot.png?raw=true)
 
@@ -17,7 +17,7 @@ Download the [latest release](https://github.com/Spacehaven-modding-tools/spaceh
 
 2. Click the "Open Mods Folder" button to open your game's `mods` folder.
 
-3. Download some mods and copy them in. There are a few example mods available from [the releases page](https://github.com/anatarist/spacehaven-modloader/releases) or you can find them elsewhere on the internet. When you're done your game folder should look something like this:
+3. Download some mods and copy them into the `mods` folder. Mods can be found on [NexusMods](https://www.nexusmods.com/spacehaven). When you're done your game folder should look something like this:
 
 ```
 spacehaven.jar
@@ -32,6 +32,9 @@ mods/
       textures.xml
     textures/
       2283.png
+  ClaimDerelict/
+    info.xml
+    ClaimDerelict.jar
   ...
 ```
 
@@ -49,7 +52,16 @@ Running the game from the modloader will not load your cloud credentials correct
 
 ## Modding Guide
 
-Mods are stored as a series of XML files in roughly the same format as the game's library.
+There are two types of mods supported by the modloader. These are XML mods, which are used to create new buildings, and code injection mods that can alter game functionality. Info on both types of mods is below.
+
+### Code Injection Mods
+These mods use AspectJ (similar to Harmony in C#) to allow you to inject code before, after, and around the game's existing functions, method calls, and field accesses. This functionality makes code injection mods extremely poewrful, but they require programming knowledge (or patience and a willingness to learn) to create. You'll also want a tool that allows you to decompile `spacehaven.jar`. I recommend [JD GUI](https://github.com/java-decompiler/jd-gui) as it seemed to work the best out of the few options I tried. The game's code is not obfuscated, so the decompilation process is relatively painless. 
+
+There's a [template repo](https://github.com/CyanBlob/SpaceHavenModTemplate) that you can use as a basis for creating your own code injection mod. The template repo includes instructions on how to set up your dev environment as well as some basic sample mods.
+
+### XML Mods
+
+XML Mods are stored as a series of XML files in roughly the same format as the game's library.
 
 You can take a look at the library by clicking the "Extract game assets" button. That will extract the game library from `spacehaven.jar` into `mods/spacehaven/` and open the folder.
 
@@ -67,7 +79,7 @@ Note that because mods are loaded by doing an id-wise merge with the base game l
 - `t`s in `library/texts`
 
 
-### ID Numbers
+#### ID Numbers
 
 Most of the items in the game's library are identified by a numeric ID rather than a human-readable name.
 
@@ -78,7 +90,7 @@ If you want to create a *new* definition, things get a bit trickier because you 
 I recommend prefixing your definition IDs with your Discord user number (e.g. mine is #4511) and a sequential mod number (e.g. I used `00` for the `artificial-plant` example, `01` for `exterior-air-vent`, etc) to come up with something reasonably unique, e.g. `451102000` for the Monster Meat crop recipe in the `greenhouse` example (and then `451102001` for the next ID in that mod, `451102002` for the one after that, etc etc).
 
 
-### Navigating the Library
+#### Navigating the Library
 
 Since ID numbers are unique they're reasonably easy to follow in a text editor - if you find a definition that references another, simply search for the referenced ID that you're interested in.
 
@@ -127,7 +139,7 @@ and looking up the `<name tid="869" />` we see the category is named:
 To make life easier, the mod loader does these name lookups automatically in a few places and stores the results in `_annotated_name=""` attributes. This annotated version of the library is saved to `library/haven.annotated.xml` and is (accordingly) a bit easier to navigate.
 
 
-### Textures and Animations
+#### Textures and Animations
 
 Extracting and annotating game assets also decodes and explodes the game's textures into `library/textures.exploded`. The game's original packed textures are written to `library/textures.exploded/*.png` and the texture regions are written to `library/textures.exploded/*/*.png`, where the folder name is the texture ID and the filename is the region ID.
 
