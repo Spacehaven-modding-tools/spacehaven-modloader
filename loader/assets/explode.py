@@ -10,6 +10,8 @@ import lxml.etree
 import png
 import ui.log
 
+from loader.assets.utils import create_xml_parser
+
 PIXEL_SIZE = 4
 RGBA_FORMAT = 4
 HEADER_SIZE = 12
@@ -114,7 +116,7 @@ class Texture:
 def explode(corePath):
     """Decode textures and write them out as individual regions"""
 
-    textures = lxml.etree.parse(os.path.join(corePath, "library", "textures"), parser=lxml.etree.XMLParser(recover=True))
+    textures = lxml.etree.parse(os.path.join(corePath, "library", "textures"), parser=create_xml_parser())
     cims = {}
     export_cims = {}
     
