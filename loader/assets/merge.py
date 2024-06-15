@@ -135,44 +135,38 @@ def _detect_textures(coreLibrary, modLibrary, mod):
             textureID = 9999
 
         packer = rectpack.newPacker(rotation=False)
-        sumA:int = 0  # Total Area
-        sumW:int = 0  # Total Width
-        sumH:int = 0  # Total Height
-        minRequiredDimension = 2048
-        # First get all the files and pack them into a new texture square
+
+        # Sprite sheets MUST be 2048 x 2048
+        standard_dimension: int = 2048
+        str_dimension: str = str(standard_dimension)
+        packer.add_bin(standard_dimension, standard_dimension)
+
+        # First get all the files and them to the packer pack them into a new texture square
         for regionName in needs_autogeneration:
             (w, h, rows, info) = png.Reader(textures_path + "/" + regionName).asRGBA()
             packer.add_rect(w, h, regionName)
-            minRequiredDimension = max(minRequiredDimension, w, h)
-            sumA += (w * h)
-            sumW += w
-            sumH += h
 
-        # The absolute largest size that can be needed to fit everything.
-        maxRequiredDimension = int(math.ceil(math.sqrt(sumH*sumW)))
-
-        # Increase size estimate until it is large enough.
-        size:int = 0
-        sizeEstimate = 1.2
-        basearea = max( int(math.sqrt(sumA)) , minRequiredDimension )
-        while size < maxRequiredDimension and image_count != len( packer.rect_list() or [] ) :
-            size = int(basearea * sizeEstimate)
-            packer.reset()
-            packer.add_bin(size, size)
-            packer.pack()
-            sizeEstimate += 0.1
+        # Pack files and check that we packed everything
+        packer.pack()
+        rectangles_packed: int = sum(len(packer_bin) for packer_bin in packer)
+        if rectangles_packed < len(needs_autogeneration):
+            # TODO handle case when we can't pack all the textures into one bin instead of raising an Exception
+            raise Exception(
+                f"Mod '{os.path.basename(mod)}' exceeds available sprite sheet space. Contact Mod Author."
+                ' Mod Authors should spread the sprites into multiple mods to work around this limitation.')
 
         newTex = lxml.etree.SubElement(texturesNode, "t")
         newTex.set("i", str(textureID))
-        newTex.set("w", str(size))
-        newTex.set("h", str(size))
+        newTex.set("w", str_dimension)
+        newTex.set("h", str_dimension)
         coreLibrary['_custom_textures_cim'][str(textureID)] = newTex.attrib
 
         # prepare to export packed PNG to mod directory.
-        kwargs = {}
-        kwargs['create'] = True
-        kwargs['width'] = size
-        kwargs['height'] = size
+        kwargs = {
+            'create': True,
+            'width': standard_dimension,
+            'height': standard_dimension,
+        }
         export_path = os.path.join(mod, f"custom_texture_{textureID}.png")
         custom_png:Texture = Texture( export_path, **kwargs )
 
