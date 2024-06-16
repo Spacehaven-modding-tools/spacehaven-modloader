@@ -13,6 +13,7 @@ import ui.log
 from .explode import Texture
 from .library import PATCHABLE_CIM_FILES, PATCHABLE_XML_FILES
 from .patch import doPatches
+from .utils import create_xml_parser
 
 
 def _detect_textures(coreLibrary, modLibrary, mod):
@@ -240,8 +241,8 @@ def buildLibrary(location: str, mod: str):
             if target not in location_library:  location_library[target] = []
 
             ui.log.log("    {} <= {}".format(target, mod_file))
-            with open(_mod_path(mod_file)) as f:
-                location_library[target].append(lxml.etree.parse(f, parser=lxml.etree.XMLParser(remove_comments=True)))
+            with open(_mod_path(mod_file), 'rb') as f:
+                location_library[target].append(lxml.etree.parse(f, parser=create_xml_parser()))
 
         mod_file = _mod_path(target)
         # try again with the extension ?
@@ -260,7 +261,7 @@ def mods(corePath, activeMods, modPaths):
 
     for filename in PATCHABLE_XML_FILES:
         with open(_core_path(filename), 'rb') as f:
-            coreLibrary[filename] = lxml.etree.parse(f, parser=lxml.etree.XMLParser(recover=True))
+            coreLibrary[filename] = lxml.etree.parse(f, parser=create_xml_parser())
 
     # find the last region in the texture file and remember its index
     # we will need this to add mod textures with consecutive indexes...

@@ -3,9 +3,8 @@ import os
 from xml.etree import ElementTree
 
 import ui.log
-from lxml.etree import XMLParser
 
-
+from loader.assets.utils import create_xml_parser
 
 
 def annotate(corePath):
@@ -14,13 +13,13 @@ def annotate(corePath):
 
     # NOTE: textures and animations do not seem to get annotated.  Should this be replaced?  WP would like to use these to make additional annotations in `haven`.
     texture_names = {}
-    local_texture_names = ElementTree.parse("textures_annotations.xml", parser=XMLParser(recover=True))
+    local_texture_names = ElementTree.parse("textures_annotations.xml", parser=create_xml_parser())
     for region in local_texture_names.findall(".//re[@n]"):
         if not region.get("_annotation"):
             continue
         texture_names[region.get('n')] = region.get("_annotation")
     
-    animations = ElementTree.parse(os.path.join(corePath, "library", "animations"), parser=XMLParser(recover=True))
+    animations = ElementTree.parse(os.path.join(corePath, "library", "animations"), parser=create_xml_parser())
     for assetPos in animations.findall('.//assetPos[@a]'):
         asset_id = assetPos.get('a')
         if not asset_id in texture_names:
@@ -31,8 +30,8 @@ def annotate(corePath):
     animations.write(annotatedPath)
     ui.log.log("  Wrote annotated annimations to {}".format(annotatedPath))
     
-    haven = ElementTree.parse(os.path.join(corePath, "library", "haven"), parser=XMLParser(recover=True))
-    texts = ElementTree.parse(os.path.join(corePath, "library", "texts"), parser=XMLParser(recover=True))
+    haven = ElementTree.parse(os.path.join(corePath, "library", "haven"), parser=create_xml_parser())
+    texts = ElementTree.parse(os.path.join(corePath, "library", "texts"), parser=create_xml_parser())
 
     tids = {}
     # Load texts
@@ -257,7 +256,7 @@ def annotate(corePath):
     # NOTE: maybe refactor to only use the tags for the annotation, as the path is always the same and a bit verbose.
     ui.log.log("  annotate DataLogFragment...")
     # First get gfile names.
-    gfiles = ElementTree.parse(os.path.join(corePath, "library", "gfiles"), parser=XMLParser(recover=True))
+    gfiles = ElementTree.parse(os.path.join(corePath, "library", "gfiles"), parser=create_xml_parser())
     gfilename = {}
     for f in gfiles.getroot():
         id = f.get("id")
