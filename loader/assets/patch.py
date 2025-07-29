@@ -168,6 +168,9 @@ def doPatches(coreLib, modLib, mod:dict):
                 continue
             for patchOperation in patchList.getroot():
                 patchOperation : lxml.etree._Element
+                if isinstance(patchOperation, lxml.etree._Comment):
+                    continue
+
                 try:
                     doPatchType(patchOperation, location)
                 except Exception as e:
