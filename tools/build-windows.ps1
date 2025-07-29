@@ -19,7 +19,7 @@ function log {
 	Write-Host -Fore Cyan $writeThis
 }
 
-if ($gitDir -eq $null) {
+if ($null -eq $gitDir) {
 	return 1
 }
 log "Jumping to root directory of repository" -Quiet:$Quiet

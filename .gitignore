@@ -11,10 +11,11 @@ previous_spacehaven_path.txt
 *.rej
 quicklaunch_*.jar
 quicklaunch_*/
+_quicklaunch_*.jar
 extra_mods_path.txt
 env/
 .vscode/.ropeproject/
-.vscode/settings.json
+#.vscode/settings.json
 unit-tests/*.xml
 venv/
 .venv/
