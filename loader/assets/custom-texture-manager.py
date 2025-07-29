@@ -4,6 +4,7 @@ import png
 import os
 import rectpack
 
+
 class TextureManager:
     _TexFileResolution = 2000
     _RegionIdLastCore = 0
@@ -14,7 +15,7 @@ class TextureManager:
     CustomTextureIDStart = 400
 
     Packer = None
-    Packer : rectpack.PackerGlobal
+    Packer: rectpack.PackerGlobal
 
     @classmethod
     def setup(cls, lastCoreRegionID: int):
@@ -71,14 +72,15 @@ class TextureManager:
             regionID = cls.REGISTERED_MOD_TEXTURES[regModTexIDX].CoreRegionID
             packedRectsSorted[regionID] = (b, str(x), str(y), str(w), str(h), regModTexIDX)
         # NOT YET SORTED
-        packedRectsSorted = {k: v for k,v in sorted(packedRectsSorted.items())}
+        packedRectsSorted = {k: v for k, v in sorted(packedRectsSorted.items())}
         # NOW SORTED
         bins = set()
 
         for regionID, rect in packedRectsSorted.items():
             newNode = lxml.etree.SubElement(regionsNode, "re")
 
-            rt: RegisteredTexture; rt = cls.REGISTERED_MOD_TEXTURES[regModTexIDX]
+            rt: RegisteredTexture
+            rt = cls.REGISTERED_MOD_TEXTURES[regModTexIDX]
             regionFileName = cls.getModTexturePath(rt.ParentMod, rt.TexPath)
             bin, x, y, w, h, regModTexIDX = rect
             bins.add(bin)
@@ -106,6 +108,7 @@ class TextureManager:
 
 class RegisteredTexture:
     """All the metadata needed to construct a region node."""
+
     ParentMod: str
     TexPath: str
     CoreRegionID: int
@@ -133,13 +136,13 @@ if __name__ == "__main__":
     for filename in os.listdir(testFileDir):
         repeat = os.stat(os.path.join(testFileDir, filename)).st_size
         # magic numbers chosen semi-randomly to get a good spread of repeats
-        repeat = math.ceil((210 - repeat)/ 9) ** 2
+        repeat = math.ceil((210 - repeat) / 9) ** 2
         print(f"{filename:>11} - {repeat:>2}")
         for x in range(repeat):
             TextureManager.registerNewTexture("unit-tests", filename)
 
     TextureManager.pack()
-    with open("unit-tests/textures-output.xml", 'wb') as f:
+    with open("unit-tests/textures-output.xml", "wb") as f:
         f.write(lxml.etree.tostring(TextureManager.getXMLTexture(), pretty_print=True))
 
     for bin in TextureManager.Packer:
