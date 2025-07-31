@@ -189,18 +189,50 @@ def BadOp(patchArgs):
 
 
 patchDispatcher = {
+    "SetAttribute": AttributeSet,
     "AttributeSet": AttributeSet,
+
+    "AddAttribute": AttributeAdd,
     "AttributeAdd": AttributeAdd,
+
+    "RemoveAttribute": AttributeRemove,
     "AttributeRemove": AttributeRemove,
+
+    "MathAttribute": AttributeMath,
     "AttributeMath": AttributeMath,
+
+
     "Add": NodeAdd,  # this was kept because of retrocompatibility
+    "AddNode": NodeAdd,  # this was kept because of retrocompatibility
+    "NodeAdd": NodeAdd,  # this was kept because of retrocompatibility
+    
     "AddFirst": NodeAddFirst,
+    "AddNodeFirst": NodeAddFirst,
+    "NodeAddFirst": NodeAddFirst,
+    
     "AddLast": NodeAdd,
+    "AddNodeLast": NodeAdd,
+    "NodeAddLast": NodeAdd,
+
     "Insert": NodeInsert,  # this was kept because of retrocompatibility
+    "InsertNode": NodeInsert,  # this was kept because of retrocompatibility
+    "NodeInsert": NodeInsert,  # this was kept because of retrocompatibility
+
     "InsertBefore": NodeInsertBefore,
+    "InsertNodeBefore": NodeInsertBefore,
+    "NodeInsertBefore": NodeInsertBefore,
+
     "InsertAfter": NodeInsert,
+    "InsertNodeAfter": NodeInsert,
+    "NodeInsertAfter": NodeInsert,
+
     "Remove": NodeRemove,
+    "RemoveNode": NodeRemove,
+    "NodeRemove": NodeRemove,
+
     "Replace": NodeReplace,
+    "ReplaceNode": NodeReplace,
+    "NodeReplace": NodeReplace,
 }
 
 
