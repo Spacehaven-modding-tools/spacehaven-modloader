@@ -3,11 +3,11 @@ import zipfile39
 import ui.log
 
 PATCHABLE_XML_FILES = [
-    "library/haven",
-    "library/texts",
-    "library/animations",
-    "library/textures",
-    "library/audio",
+    'library/haven',
+    'library/texts',
+    'library/animations',
+    'library/textures',
+    'library/audio',
 ]
 
 PATCHABLE_CIM_FILES = ["library/%d.cim" % i for i in range(24)]
