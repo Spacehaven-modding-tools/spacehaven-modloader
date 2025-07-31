@@ -2,6 +2,8 @@
 import copy
 import math
 import os
+from pathlib import Path
+import shutil
 
 import loader.assets.library
 import lxml.etree
@@ -288,11 +290,94 @@ def mods(corePath, activeMods, modPaths):
         with open(_core_path(filename), "wb") as f:
             f.write(lxml.etree.tostring(coreLibrary[filename], pretty_print=True, encoding="UTF-8"))
 
+    # EXTRA ASSETS ADDED BY MODS
+    extra_assets = []
+    
+    # AUDIO
+    ui.log.updateLaunchState("Packing audio")
+
+    # First of all, the 'a' entries should be sorted by 'at' attribbute, then by 'id' attribute:
+    baseRoot = coreLibrary['library/audio'].xpath('/audio')[0]
+    baseRoot[:] = sorted(
+        baseRoot,
+        key=lambda e: (-ord(e.get("at")[0]), int(e.get("id")))
+    )
+
+    # get list of original audio files
+    valid_audio_types = ['Sound', 'Music']
+    valid_audio_extensions = ['ogg', 'mp3']
+    
+    # get the game's original audio file list
+    original_audio_relative_paths = set()
+    for valid_audio_type in valid_audio_types:
+        original_audio_directory = os.path.join(corePath, 'library', valid_audio_type.lower())
+        for abs_dir, _, filenames in os.walk(original_audio_directory):
+            for filename in filenames:
+                rel_dir = os.path.relpath(abs_dir, corePath)
+                rel_path = os.path.join(rel_dir, filename)
+                original_audio_relative_paths.add(rel_path.replace(os.sep, '/'))
+
+    # process each audio entry in 'audio' file
+    for audio in coreLibrary['library/audio'].xpath("//a[@n and @at]"):
+        
+        audio_name = audio.get('n')
+
+        # validate audio reference type
+        audio_type = audio.get('at')
+        if(audio_type not in valid_audio_types):
+            ui.log.log(f"  ERROR: The type of the audio reference '{audio_name}' must be one of these: {','.join(valid_audio_types)}")
+            continue
+
+        # get encoding and relative audio path
+        audio_encoding = None
+        audio_relative_path = None
+        for ext in valid_audio_extensions:
+            if(ext in audio.attrib):
+                audio_encoding = ext.lower()
+                audio_relative_path = audio.get(ext)
+                if(not audio_relative_path.lower().endswith(audio_encoding)):
+                    ui.log.log(f"  ERROR: The encoding type '{audio_encoding}' of the audio reference '{audio_name}' must be the same as its file extension '{audio_relative_path}'")
+                break
+        if(audio_encoding is None or audio_relative_path is None):
+            ui.log.log(f"  ERROR: the audio reference '{audio_name}' is invalid: unable to determine the audio's encoding type and relative path")
+            continue
+
+        # get audio filename
+        audio_filename = Path(audio_relative_path).name
+
+        # check if the audio file exist in mods
+        audio_path_list = []
+        for mod in modPaths:
+            audio_path = os.path.join(mod, 'audio', audio_filename)
+            if(os.path.isfile(audio_path)):
+                audio_path_list.append((Path(mod).name, audio_path))
+        
+        # audio file not found in mods?
+        if(len(audio_path_list) <= 0):
+            # is it an original game audio?
+            if(audio_relative_path in original_audio_relative_paths):
+                continue
+            # audio file also not found as original game audio => notify!
+            ui.log.log(f"  ERROR: Unable to find referenced audio file: '{audio_filename}'")
+            continue
+
+        # found multiple audio files with same name => notify!
+        if(len(audio_path_list) > 1):
+            ui.log.log(f"  ERROR: Duplicates of modded audio file '{audio_filename}' were found in the following mods, copying just the first one: {', '.join(sorted(set(mod for mod, _ in audio_path_list)))}")
+    
+        audio_src_path = audio_path_list[0][1]
+
+        # copy audio to library
+        ui.log.log(f"  Copying {audio_relative_path}...")
+        audio_dst_path = os.path.join(corePath, 'library', audio_type.lower(), audio_encoding, audio_filename)
+        shutil.copy(str(audio_src_path), audio_dst_path)
+        extra_assets.append(audio_relative_path)
+
+    # TEXTURE
     ui.log.updateLaunchState("Packing textures")
     # add or overwrite textures from mods. This is done after all the XML has been merged into the core "textures" file
     cims = {}
     reexport_cims = {}
-    extra_assets = []
 
     for region in coreLibrary['library/textures'].xpath("//re[@n]"):
         name = region.get("n")
@@ -402,6 +487,11 @@ def doMerges(coreLib, modLib, mod: str):
     currentFile = "library/texts"
     if currentFile in modLib:
         mergeShim(currentFile, "/t", idAttribute="id")
+    else: mergeAbortMessage(currentFile)
+
+    currentFile = "library/audio"
+    if currentFile in modLib:
+        mergeShim(currentFile, "/audio", idAttribute="id")
     else: mergeAbortMessage(currentFile)
 
     # do that before merging animations and textures because references might have to be remapped!
