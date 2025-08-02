@@ -16,3 +16,5 @@ env/
 .vscode/.ropeproject/
 .vscode/settings.json
 unit-tests/*.xml
+venv/
+.venv/
