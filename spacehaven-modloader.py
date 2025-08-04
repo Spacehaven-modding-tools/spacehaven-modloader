@@ -701,4 +701,16 @@ if __name__ == "__main__":
     root.update_idletasks()
     root.after(0, fixNoButtonLabelsBug)
     root.protocol("WM_DELETE_WINDOW", app.quit)
+    icon = None
+    try:
+        icon = PhotoImage(file="spacehaven-modloader.png")
+    except:
+        pass
+    if icon is None:
+        try:
+            icon = PhotoImage(file="./_internal/spacehaven-modloader.png")
+        except:
+            pass
+    if icon is not None:
+        root.iconphoto(True, icon)
     root.mainloop()
