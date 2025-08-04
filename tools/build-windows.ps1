@@ -16,7 +16,7 @@ function log {
 		[switch]$Quiet
 	)
 	if ($Quiet) { return }
-	Write-Host -Fore Cyan $writeThis
+	Write-Host -Fore Cyan $WriteThis
 }
 
 if ($null -eq $gitDir) {
@@ -36,7 +36,7 @@ $VERSION = python -c 'import version; print(version.version)'
 $distPathVersioned = "$distPath-$VERSION.windows"
 
 log "Build version $VERSION" -Quiet:$Quiet
-python -m PyInstaller --noconsole $specfile
+python -m PyInstaller $specfile --clean
 deactivate
 
 if (Test-Path $distPathVersioned) {
@@ -55,13 +55,4 @@ if ($7z -and -not $SkipZip) {
 	. $7z a -spe -- ".\$distPathVersioned.zip" ".\$distPathVersioned"
 }
 
-$openDistDir = $True
-if (-not $Quiet) {
-	log "Press any key to continue (Escape to skip opening directory)"
-	$key = [Console]::ReadKey()
-	if ($key.Key -eq [ConsoleKey]::Escape) {
-		$openDistDir = $False
-	}
-}
-if ($openDistDir) { Invoke-Item dist }
 Pop-Location

@@ -1,21 +1,21 @@
 import sys
 from cx_Freeze import setup, Executable
-
 import version
 
-# Dependencies are automatically detected, but it might need fine tuning.
 build_exe_options = {
-    "packages": ["six", "pkg_resources._vendor"],
+    "build_exe": "build/spacehaven-modloader",
+    "packages": ["lxml", "png", "rectpack", "zipfile39"],
     "includes": ["vdf"],
-    "excludes": [],
-    "include_files": ["textures_annotations.xml", "aspectj-1.9.19.jar", "aspectjweaver-1.9.19.jar"],
+    "include_files": [
+        "spacehaven-modloader.png",
+        "textures_annotations.xml",
+        "aspectj-1.9.19.jar",
+        "aspectjweaver-1.9.19.jar",
+    ],
 }
 
-# GUI applications require a different base on Windows (the default is for a
-# console application).
-base = None
-if sys.platform == "win32":
-    base = "Win32GUI"
+# Windows GUI app: use Win32GUI base
+base = "Win32GUI" if sys.platform == "win32" else None
 
 APP = ["spacehaven-modloader.py"]
 DATA_FILES = [
@@ -31,6 +31,7 @@ OPTIONS = {}
 setup(
     name="spacehaven-modloader",
     version=version.version,
+    description="Space Haven Mod Loader",
     options={"build_exe": build_exe_options},
     executables=[Executable("spacehaven-modloader.py", base=base)],
 )

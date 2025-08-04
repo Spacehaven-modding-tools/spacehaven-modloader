@@ -1,8 +1,23 @@
 # Change Log
 
-## vNext_Version
-- Fix legacy mod examples.
-- More complete mod examples.
+## v0.11.7
+### New Modifiable Stuff
+- Added modding of library/audio
+### Engine
+- Improved patch operations log and validations
+- Added new patch operations
+### Source Code Improvements
+- Deleted some deprecated mod examples: the mod in Nexus serve as a better demo!
+- Cleanup of unused python modules in source code => smaller requirements.txt
+- Upgraded python to version 3.11.9
+- Fixed zipfile error ("zip bomb") when upgrading python
+- Fixed all lxml warnings
+- Fixed build/dist scripts
+- Fixed launch VSCode options
+- Added python black and flake8 for the sake of clean development
+- Fixes and coding style changes due to python black and flake8
+- Removed lines of code spacehaven-modloader.py (toggle/var declarations), show in the IDE as errors
+- Improved .gitignore file
 
 ## v0.10.0
 ### GitHub Issues Resolved
