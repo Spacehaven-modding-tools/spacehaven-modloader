@@ -1,8 +1,0 @@
-<mod>
-  <name>Artificial Plant</name>
-  <description>A simple artificial plant. Provides a small boost to comfort even in otherwise-unpleasant areas. Available under CREW > FURNITURE.</description>
-  <minimumLoaderVersion>0.0.1</minimumLoaderVersion>
-  <gameVersions>
-    <v>0.4.1</v>
-  </gameVersions>
-</mod>
