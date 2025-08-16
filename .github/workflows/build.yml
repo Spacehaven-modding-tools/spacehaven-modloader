@@ -1,4 +1,3 @@
----
 name: build mod manager
 
 on:
@@ -14,29 +13,46 @@ permissions:
 
 jobs:
   build:
-
     runs-on: [windows-latest]
 
     steps:
       - uses: actions/checkout@v4
+
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11.6"
+          python-version: "3.11.9"
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-      - name: Build .msi
+
+      - name: Prepare dist folder
         run: |
-          python setup.py bdist_msi
+          if (Test-Path dist) { Remove-Item dist\* -Force }
+          else { New-Item dist -ItemType Directory }
+
+      - name: Build cx_Freeze files
+        run: python setup.py build
+
+      - name: Generate NSIS file list and installer script
+        run: python generate_nsis_filelist.py
+
+      - name: Install NSIS
+        run: choco install nsis -y
+
+      - name: Build NSIS installer
+        run: makensis installer.nsi
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: windows-installer
-          path: dist/*.msi
+          path: dist/*.exe
+
       - name: Upload to release
         if: github.event_name == 'release' || startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*.msi
+          files: dist/*.exe

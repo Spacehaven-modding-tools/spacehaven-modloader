@@ -1,7 +1,7 @@
 $python = get-command python
 $gitDir = git rev-parse --show-toplevel
 $venv = "env"
-$requiredVersion = [version]::new(3,7)
+$requiredVersion = [version]::new(3,11)
 
 function log {
 	param(
@@ -14,7 +14,7 @@ function log {
 	Write-Host -Fore Cyan $writeThis
 }
 
-if ($python -eq $null) {
+if ($null -eq $python) {
 	log "Unable to find python, aborting. Please install python $requiredVersion or add it to your path."
 }
 
@@ -36,9 +36,11 @@ log "Activating virtual environment"
 # Update to env python
 $python = get-command python
 
+log "Upgrading pip"
+python.exe -m pip install --upgrade pip
+
 log "Installing requirements"
 & $python -m pip install -r requirements.txt
-
 
 log "Deactivating virtual environment"
 deactivate

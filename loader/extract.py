@@ -1,9 +1,5 @@
-
-import os
-
 import ui.log
 
-import loader.assets.annotate
 import loader.assets.explode
 import loader.assets.library
 

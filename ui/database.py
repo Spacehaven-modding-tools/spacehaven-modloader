@@ -2,22 +2,18 @@
 from __future__ import annotations
 
 import distutils.version
-from operator import truediv
 import os
 from xml.etree import ElementTree
 import json
 
 import version
-
-import ui.gameinfo
 import ui.log
 import shutil
 
 
-import tkinter as tk
-
 class ModDatabase:
     """Information about a collection of mods"""
+
     __lastInstance = None
     Prefixes = {}
     mods: list[Mod]
@@ -36,26 +32,26 @@ class ModDatabase:
         ui.log.log("Locating mods...")
         for path in self.path_list:
             for modFolder in os.listdir(path):
-                if 'spacehaven' in modFolder:
+                if "spacehaven" in modFolder:
                     continue  # don't need to load core game definitions
                 modPath = os.path.join(path, modFolder)
                 if os.path.isfile(modPath):
                     # TODO add support for zip files ? unzip them on the fly ?
-                    #continue  # don't load logs, prefs, etc
+                    # continue  # don't load logs, prefs, etc
                     pass
-                
+
                 # TODO Pass the mod path to Mod() instead of the info_file and let it handle
                 # the info file check. It already does this! Let it do its job!
                 info_file = os.path.join(modPath, "info")
                 if not os.path.isfile(info_file):
-                    info_file += '.xml'
+                    info_file += ".xml"
                 if not os.path.isfile(info_file):
                     # no info file, don't create a mod.
                     continue
-                
+
                 isJarMod = False
                 jarModFileName = ""
-                jarModDisabled = False
+                # jarModDisabled = False
                 for file in os.listdir(modPath):
                     if file.endswith(".jar"):
                         isJarMod = True
@@ -64,7 +60,7 @@ class ModDatabase:
                 if isJarMod:
                     newMod = JarMod(info_file, self.gameInfo, jarModFileName)
                     if newMod.enabled:
-                        newMod.enable() # this has to be called in order to update config.json
+                        newMod.enable()  # this has to be called in order to update config.json
                 else:
                     newMod = Mod(info_file, self.gameInfo)
                 if newMod.prefix:
@@ -73,7 +69,7 @@ class ModDatabase:
                     else:
                         ModDatabase.Prefixes[newMod.prefix] = newMod.enabled
                 self.mods.append(newMod)
-        
+
         self.mods.sort(key=lambda mod: mod.name)
 
     def isEmpty(self) -> bool:
@@ -81,19 +77,11 @@ class ModDatabase:
 
     @classmethod
     def getActiveMods(cls) -> list[Mod]:
-        return [
-            mod
-            for mod in cls.getInstance().mods
-            if mod.enabled
-        ]
+        return [mod for mod in cls.getInstance().mods if mod.enabled]
 
     @classmethod
     def getInactiveMods(cls) -> list[Mod]:
-        return [
-            mod
-            for mod in cls.getInstance().mods
-            if not mod.enabled
-        ]
+        return [mod for mod in cls.getInstance().mods if not mod.enabled]
 
     @classmethod
     def getRegisteredMods(cls) -> list[Mod]:
@@ -115,82 +103,74 @@ class ModDatabase:
 
 
 class ModConfigVar:
-    """ An individual user configurable variable.  Presently a simple string search-replace. Designed to support more advanced features."""
+    """An individual user configurable variable.  Presently a simple string search-replace. Designed to support more advanced features."""
 
-    def __init__(self, XML:ElementTree.Element):
+    def __init__(self, XML: ElementTree.Element):
         self.loadXml(
-                XML.get("name"),        # Internal Name, used in search-replace of the XML.
-                XML.text,               # Description shown in UI to user.
-                XML.get("type"),        # Optional Data type, as int, float, str, or bool. TODO:enforce.
-                XML.get("size"),        # Optional Size. Number of characters permitted in string.  TODO:enforce.
-                XML.get("min"),         # Optional minimum value. TODO:enforce.
-                XML.get("max"),         # Optional maximum value. TODO:enforce.
-                XML.get("default"),     # Optional default value. 
-                XML.get("value")        # User set value, and optional initial value. Can be different than default.
+            XML.get("name"),  # Internal Name, used in search-replace of the XML.
+            XML.text,  # Description shown in UI to user.
+            XML.get("type"),  # Optional Data type, as int, float, str, or bool. TODO:enforce.
+            XML.get("size"),  # Optional Size. Number of characters permitted in string.  TODO:enforce.
+            XML.get("min"),  # Optional minimum value. TODO:enforce.
+            XML.get("max"),  # Optional maximum value. TODO:enforce.
+            XML.get("default"),  # Optional default value.
+            XML.get("value"),  # User set value, and optional initial value. Can be different than default.
         )
 
     # Clean entry for different value types.
     # TODO: fully implement and enforce.
-    def _cleanValue(self, val:any):
+    def _cleanValue(self, val: any):
         if not self.type:
-            self.type="str"
+            self.type = "str"
         type_name = self.type.strip().lower()
-        v:any = val
+        v: any = val
         try:
             # Be very generous on string type.
             if type_name is None or type_name == "" or type_name.startswith("str") or type_name.startswith("text") or type_name.startswith("txt"):
-                self.type="str"
+                self.type = "str"
                 v = val
             elif type_name.startswith("int"):
-                self.type="int"
+                self.type = "int"
                 v = int(val)
             elif type_name.startswith("float"):
-                self.type="float"
+                self.type = "float"
                 v = float(val)
             elif type_name.startswith("bool"):
-                self.type="bool"
+                self.type = "bool"
                 # Be generous on boolean values.
-                if str(val).strip().lower() in [1,-1,'1','-1','t','y','true','yes','on']:
-                    v=True
+                if str(val).strip().lower() in [1, -1, "1", "-1", "t", "y", "true", "yes", "on"]:
+                    v = True
                 else:
-                    v=False
-            elif type_name.startswith("toggle"): 
-                self.type="toggle"
-                # Be generous on boolean values. 
-                if str(val).strip().lower() in [1,-1,'1','-1','t','y','true','yes','on']:
-                    v = var.max
-                else:
-                    v = var.min
+                    v = False
         except:
             return None
 
         return v
 
+    def loadXml(self, name: str, desc: str, data_type: str, size, min, max, default, value):
+        self.name: str = name
+        self.desc: str = desc
+        self.type: str = data_type
 
-    def loadXml(self, name:str, desc:str, data_type:str, size, min, max, default, value):
-        self.name:str=name
-        self.desc:str=desc
-        self.type:str=data_type
-
-        self.min:float=float(min) if min else None
-        self.max:float=float(max) if max else None
-        self.min:toggle=str(min) if min else None
-        self.max:toggle=str(max) if max else None
-        self.size:int=int(size) if size else None
-        self.default:str=str(default) if default else None
-        self.value:str=self._cleanValue(value)
+        self.min: float = float(min) if min else None
+        self.max: float = float(max) if max else None
+        self.size: int = int(size) if size else None
+        self.default: str = str(default) if default else None
+        self.value: str = self._cleanValue(value)
         if self.value is None:
             self.value = value = self.default
-        
+
 
 DISABLED_MARKER = "disabled.txt"
+
+
 class Mod:
     """Details about a specific mod (name, description)"""
 
     def __init__(self, info_file, gameInfo):
         self.path = os.path.normpath(os.path.dirname(info_file))
         ui.log.log("  Loading mod at {}...".format(self.path))
-        
+
         # TODO add a flag to warn users about savegame compatibility ?
         self.name = os.path.basename(self.path)
         self.version = ""
@@ -201,28 +181,28 @@ class Mod:
         self.gameInfo = gameInfo
         self._mappedIDs = []
         self.enabled = not os.path.isfile(os.path.join(self.path, DISABLED_MARKER))
-        self.variables:dict = {}
+        self.variables: dict = {}
         self.info_file = info_file
         self.loadInfo(info_file)
         self.known_issues = ""
 
     def loadInfo(self, infoFile):
-        
+
         if not os.path.exists(infoFile):
             ui.log.log("    No info file present")
             self.name += " [!]"
             self.description = "Error loading mod: no info file present. Please create one."
             return
-        
+
         def _sanitize(elt):
             return elt.text.strip("\r\n\t ")
-        
+
         def _optional(tag):
             try:
                 return _sanitize(mod.find(tag))
             except:
                 return ""
-        
+
         try:
             info = ElementTree.parse(infoFile)
             mod = info.getroot()
@@ -230,7 +210,7 @@ class Mod:
             self.info_xml = info
             self.name = _sanitize(mod.find("name"))
             self.description = _sanitize(mod.find("description"))
-            
+
             self.known_issues = _optional("knownIssues")
             self.version = _optional("version")
             self.author = _optional("author")
@@ -242,13 +222,13 @@ class Mod:
             self.config_xml = mod.find("config")
             if self.config_xml:
                 all_var = self.config_xml.findall("var")
-                if all_var and len(all_var)>0:
-                    self.variables=[]
+                if all_var and len(all_var) > 0:
+                    self.variables = []
                     for var in all_var:
                         confVar = ModConfigVar(var)
                         if confVar:
                             self.variables.append(confVar)
-                        confVar=None
+                        confVar = None
 
             self.verifyLoaderVersion(mod)
             self.verifyGameVersion(mod, self.gameInfo)
@@ -261,18 +241,17 @@ class Mod:
 
         ui.log.log("    Finished loading {}".format(self.name))
 
-    def saveConfig(self):         
+    def saveConfig(self):
         if self.config_xml:
             all_var = self.config_xml.findall("var")
-            if all_var and len(all_var)>0:
+            if all_var and len(all_var) > 0:
                 for var in self.variables:
                     v = self.config_xml.findall("./var[@name='" + var.name + "']")
-                    if v :
-                        v[0].set("value",str(var.value))
+                    if v:
+                        v[0].set("value", str(var.value))
 
             # config_xml is a section of info_xml
             self.info_xml.write(self.info_file)
-
 
     def enable(self):
         try:
@@ -280,18 +259,18 @@ class Mod:
             self.enabled = True
         except:
             pass
-    
+
     def disable(self):
         with open(os.path.join(self.path, DISABLED_MARKER), "w") as marker:
             marker.write("this mod is disabled, remove this file to enable it again (or toggle it via the modloader UI)")
         self.enabled = False
-    
+
     def title(self):
         title = self.name
         if self.version:
             title += " (%s)" % self.version
         return title
-    
+
     def getDescription(self):
         """Build a description from the mod data"""
         description = ""
@@ -335,8 +314,8 @@ class Mod:
             self.warn("This mod does not declare what game version(s) it supports.")
             return
 
-        for version in list(gameVersionsTag):
-            self.gameVersions.append(version.text)
+        for v in list(gameVersionsTag):
+            self.gameVersions.append(v.text)
 
         ui.log.log("    Game Versions: {}".format(", ".join(self.gameVersions)))
 
@@ -344,16 +323,14 @@ class Mod:
             self.warn("Could not determine Space Haven version. You might need to update your loader.")
             return
 
-        if not gameInfo.version in self.gameVersions:
-            self.warn("This mod may not support Space Haven {}, it only supports {}.".format(
-                self.gameInfo.version,
-                ", ".join(self.gameVersions)
-            ))
+        if gameInfo.version not in self.gameVersions:
+            self.warn("This mod may not support Space Haven {}, it only supports {}.".format(self.gameInfo.version, ", ".join(self.gameVersions)))
 
     def warn(self, message):
         ui.log.log("    Warning: {}".format(message))
         self.name += " [!]"
         self.description += "\nWARNING: {}!".format(message)
+
 
 class JarMod(Mod):
     def __init__(self, info_file, gameInfo, jarModFileName):
@@ -371,11 +348,11 @@ class JarMod(Mod):
         shutil.copyfile("aspectjweaver-1.9.19.jar", self.path + "/../../aspectjweaver-1.9.19.jar")
 
         try:
-            f = open(self.path + "/../../config.json","r", encoding='utf-8')
+            f = open(self.path + "/../../config.json", "r", encoding="utf-8")
             jsonObj = json.load(f)
             classPath = jsonObj["classPath"]
             vmArgs = jsonObj["vmArgs"]
-            
+
             # aspectj is required for .jar mods
             if "aspectjweaver-1.9.19.jar" not in classPath:
                 classPath.insert(0, "aspectjweaver-1.9.19.jar")
@@ -386,32 +363,32 @@ class JarMod(Mod):
                 classPath.insert(2, self.classPathName)
 
             jsonObj["classPath"] = classPath
-                
+
             if "-javaagent:./aspectjweaver-1.9.19.jar" not in vmArgs:
-                    vmArgs.insert(0, "-javaagent:./aspectjweaver-1.9.19.jar")
+                vmArgs.insert(0, "-javaagent:./aspectjweaver-1.9.19.jar")
             if "-XstartOnFirstThread" not in vmArgs:
-                    vmArgs.insert(0, "-XstartOnFirstThread")
+                vmArgs.insert(0, "-XstartOnFirstThread")
             if "--add-opens java.base/java.lang=ALL-UNNAMED" not in vmArgs:
-                    vmArgs.insert(0, "--add-opens java.base/java.lang=ALL-UNNAMED")
+                vmArgs.insert(0, "--add-opens java.base/java.lang=ALL-UNNAMED")
 
             jsonObj["vmArgs"] = vmArgs
 
             f.close()
-            open(self.path + "/../../config.json", 'w').close() # erase file
-            f = open(self.path + "/../../config.json","w", encoding='utf-8')
+            open(self.path + "/../../config.json", "w").close()  # erase file
+            f = open(self.path + "/../../config.json", "w", encoding="utf-8")
             f.write(json.dumps(jsonObj, indent=4))
             print("Updated config.json")
 
             self.enabled = True
         except:
             pass
-    
+
     def disable(self):
         with open(os.path.join(self.path, DISABLED_MARKER), "w") as marker:
             marker.write("this mod is disabled, remove this file to enable it again (or toggle it via the modloader UI)")
         self.enabled = False
 
-        f = open(self.path + "/../../config.json","r", encoding='utf-8')
+        f = open(self.path + "/../../config.json", "r", encoding="utf-8")
         jsonObj = json.load(f)
         classPath = jsonObj["classPath"]
 
@@ -419,9 +396,9 @@ class JarMod(Mod):
             classPath.remove(self.classPathName)
             jsonObj["classPath"] = classPath
             f.close()
-            open(self.path + "/../../config.json", 'w').close() # erase file
-            f = open(self.path + "/../../config.json","w", encoding='utf-8')
+            open(self.path + "/../../config.json", "w").close()  # erase file
+            f = open(self.path + "/../../config.json", "w", encoding="utf-8")
             f.write(json.dumps(jsonObj, indent=4))
             print("Updated config.json")
-        
+
     pass

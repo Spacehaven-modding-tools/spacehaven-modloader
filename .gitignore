@@ -1,20 +1,42 @@
-__pycache__
-*.egg-info
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+env/
+venv/
+.venv/
+
+# Build artifacts
 build/
 dist/
+*.egg-info/
 .eggs/
-spacehaven-modloader.spec
+*.spec
+
+# IDE / editor
+.vscode/.ropeproject/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Logs & OS junk
+*.log
+.DS_Store
+Thumbs.db
+
+# Space Haven
 logs.txt
+spacehaven-modloader.spec
 previous_spacehaven_path.txt
+quicklaunch_*.jar
+quicklaunch_*/
+_quicklaunch_*.jar
+extra_mods_path.txt
+
+# Other
 *.patch
 *.orig
 *.rej
-quicklaunch_*.jar
-quicklaunch_*/
-extra_mods_path.txt
-env/
-.vscode/.ropeproject/
-.vscode/settings.json
-unit-tests/*.xml
-venv/
-.venv/

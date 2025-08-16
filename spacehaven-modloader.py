@@ -2,20 +2,19 @@
 
 import os
 import platform
-import subprocess
 import threading
 import traceback
 import vdf
 from pathlib import Path
-from collections import OrderedDict
 from tkinter import *
 from tkinter import filedialog, messagebox, ttk, font, scrolledtext
-#from steamfiles import acf
 
-import re
+# from steamfiles import acf
+
 import loader.extract
 import loader.load
 import ui.database
+from ui.gameinfo import GameInfo
 import ui.header
 import ui.launcher
 import ui.log
@@ -31,14 +30,12 @@ POSSIBLE_SPACEHAVEN_LOCATIONS = [
     "./spacehaven.app",
     "../spacehaven.app",
     # could add default steam library location here for mac, unless mac installs steam games in the previous locations?
-
     # Windows
     "../spacehaven/spacehaven.exe",
     "../../spacehaven/spacehaven.exe",
     "../spacehaven.exe",
     "../../spacehaven.exe",
     "C:/Program Files (x86)/Steam/steamapps/common/SpaceHaven/spacehaven.exe",
-
     # Linux
     "../SpaceHaven/spacehaven",
     "../../SpaceHaven/spacehaven",
@@ -47,7 +44,8 @@ POSSIBLE_SPACEHAVEN_LOCATIONS = [
 ]
 DatabaseHandler = ui.database.ModDatabase
 
-#Frame with built in scrollbar. Used for MonConfigFrame
+
+# Frame with built in scrollbar. Used for MonConfigFrame
 class ScrollableFrame(ttk.Frame):
     def __init__(self, container, *args, **kwargs):
         super().__init__(container, *args, **kwargs)
@@ -55,19 +53,15 @@ class ScrollableFrame(ttk.Frame):
         scrollbar = ttk.Scrollbar(self, orient="vertical", command=canvas.yview)
         self.scrollable_frame = ttk.Frame(canvas)
 
-        self.scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(
-                scrollregion=canvas.bbox("all")
-            )
-        )
+        self.scrollable_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
 
-        canvas.create_window((0, 30), window=self.scrollable_frame, anchor="nw") 
+        canvas.create_window((0, 30), window=self.scrollable_frame, anchor="nw")
 
         canvas.configure(yscrollcommand=scrollbar.set)
 
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
+
 
 class Window(Frame):
     def __init__(self, master=None):
@@ -77,9 +71,8 @@ class Window(Frame):
         self.master.title("Space Haven Mod Loader v{}".format(version.version))
         # self.master.bind('<FocusIn>', self.focus)
 
-
         self.headerImage = PhotoImage(data=ui.header.image, width=1680, height=30)
-        self.header = Label(self.master, bg='black', image=self.headerImage)
+        self.header = Label(self.master, bg="black", image=self.headerImage)
         self.header.pack(fill=X, padx=0, pady=0)
 
         self.pack(fill=BOTH, expand=1, padx=4, pady=4)
@@ -88,51 +81,42 @@ class Window(Frame):
 
         # Used later when binding events.
         # This prevents some obscure bugs.
-        closure_self:Window = self
+        closure_self: Window = self
 
         # separator
-        #Frame(self, height=1, bg="grey").pack(fill=X, padx=4, pady=8)
+        # Frame(self, height=1, bg="grey").pack(fill=X, padx=4, pady=8)
 
         ##########################################################################################
         #### modBrowser - Center container for the mod list, details, and config.             ####
         ##########################################################################################
 
-        modBrowser = self.modBrowser = PanedWindow(self
-            , orient=HORIZONTAL
-            , relief=GROOVE
-            , borderwidth=4
-            , sashcursor='sb_h_double_arrow'
-            , sashrelief=SOLID  #choices: RAISED, SUNKEN, FLAT, RIDGE, GROOVE, SOLID
-            , sashwidth=8
-            , sashpad=8 )
+        modBrowser = self.modBrowser = PanedWindow(
+            self, orient=HORIZONTAL, relief=GROOVE, borderwidth=4, sashcursor="sb_h_double_arrow", sashrelief=SOLID, sashwidth=8, sashpad=8  # choices: RAISED, SUNKEN, FLAT, RIDGE, GROOVE, SOLID
+        )
         modBrowser.pack(fill=BOTH, expand=1)
 
         # MOD SELECTION LISTBOX (left pane)
-        modList = self.modList = ScrolledListbox(modBrowser, selectmode=SINGLE) # , activestyle=NONE )
+        modList = self.modList = ScrolledListbox(modBrowser, selectmode=SINGLE)  # , activestyle=NONE )
         modList.configure(exportselection=False)
-        def evt_ModList_ListboxSelect( evt ):
+
+        def evt_ModList_ListboxSelect(evt):
             w = evt.widget
             sel = w.curselection()
             # Handle problem of this event fireing when Listbox loses focus.
-            if sel is None or len(sel)==0:
+            if sel is None or len(sel) == 0:
                 return
-            index = int(w.curselection()[0])
-            value = w.get(index)
+            # index = int(w.curselection()[0])
+            # value = w.get(index)
             closure_self.showCurrentMod(evt)
 
-        modList.bind('<<ListboxSelect>>', evt_ModList_ListboxSelect)
+        modList.bind("<<ListboxSelect>>", evt_ModList_ListboxSelect)
         modBrowser.add(modList)
 
         # MOD DETAILS CONTAINER (right pane)
         # Ar vertical paned window inside a horizontal paned window.
-        modDetailsWindow = self.modDetailsWindow =  PanedWindow(self
-            , orient=VERTICAL
-            , relief=GROOVE
-            , borderwidth=4
-            , sashcursor='sb_v_double_arrow'
-            , sashrelief=SOLID  #choices: RAISED, SUNKEN, FLAT, RIDGE, GROOVE, SOLID
-            , sashwidth=8
-            , sashpad=4 )
+        modDetailsWindow = self.modDetailsWindow = PanedWindow(
+            self, orient=VERTICAL, relief=GROOVE, borderwidth=4, sashcursor="sb_v_double_arrow", sashrelief=SOLID, sashwidth=8, sashpad=4  # choices: RAISED, SUNKEN, FLAT, RIDGE, GROOVE, SOLID
+        )
         modBrowser.add(modDetailsWindow)
 
         # MOD DETAILS - Title and Description (top subpane)
@@ -144,70 +128,70 @@ class Window(Frame):
         self.modDetailsName.pack(side=LEFT, padx=4, pady=4)
 
         self.modEnableDisable = Button(modDetailTopBar, text="Enable", anchor=NE, command=self.toggle_current_mod)
-        self.modEnableDisable.pack(side = RIGHT, padx=4, pady=4)
-        modDetailTopBar.pack(side=TOP,fill=X,padx=4,pady=4)
+        self.modEnableDisable.pack(side=RIGHT, padx=4, pady=4)
+        modDetailTopBar.pack(side=TOP, fill=X, padx=4, pady=4)
 
         self.modDetailsDescription = scrolledtext.ScrolledText(modDetailsFrame, wrap=WORD)
-        self.modDetailsDescription.pack(side=TOP,fill=BOTH, expand=TRUE)
+        self.modDetailsDescription.pack(side=TOP, fill=BOTH, expand=TRUE)
 
-        modDetailsWindow.add(modDetailsFrame,minsize=100)
+        modDetailsWindow.add(modDetailsFrame, minsize=100)
 
         # Create Bottom frame placeholder for later.
         # This is populated when a mod is selected in the Listbox.
-        self.modConfigFrame = ScrollableFrame(modDetailsWindow) #Y30 used as default - see line 64
+        self.modConfigFrame = ScrollableFrame(modDetailsWindow)  # Y30 used as default - see line 64
 
         # separator
-        #Frame(self, height=1, bg="grey").pack(fill=X, padx=4, pady=8)
-        #ttk.Separator(self,orient='horizontal').pack(fill=X, padx=4, pady=8)
+        # Frame(self, height=1, bg="grey").pack(fill=X, padx=4, pady=8)
+        # ttk.Separator(self,orient='horizontal').pack(fill=X, padx=4, pady=8)
 
         ##########################################################################################
         #### Footer with Buttons                                                              ####
         ##########################################################################################
 
         # buttons at the bottom
-        buttonFrame = Frame(self)#.pack(fill = X, padx = 4, pady = 8)
+        buttonFrame = Frame(self)  # .pack(fill = X, padx = 4, pady = 8)
 
         # launcher
         self.launchButton_default_text = "LAUNCH!"
-        self.launchButton = Button(buttonFrame, text=self.launchButton_default_text, command=self.launch_wrapper, height = 2, font=font.Font(size = 14, weight = "bold") )
-        self.launchButton.pack(fill=X, padx=4, pady=4 )
+        self.launchButton = Button(buttonFrame, text=self.launchButton_default_text, command=self.launch_wrapper, height=2, font=font.Font(size=14, weight="bold"))
+        self.launchButton.pack(fill=X, padx=4, pady=4)
 
-        #Frame(self, height=1, bg="grey").pack(fill=X, padx=4, pady=8)
+        # Frame(self, height=1, bg="grey").pack(fill=X, padx=4, pady=8)
         self.spacehavenPicker = Frame(buttonFrame)
         self.spacehavenPicker.pack(fill=X, padx=4, pady=4)
         self.spacehavenBrowse = Button(self.spacehavenPicker, text="Find game...", command=self.browseForSpacehaven)
-        self.spacehavenBrowse.pack(side = LEFT, padx=8, pady=4)
+        self.spacehavenBrowse.pack(side=LEFT, padx=8, pady=4)
 
-        #self.spacehavenGameLabel = Label(self, text="Game Location :", anchor=NE)
-        #self.spacehavenGameLabel.pack(side = LEFT, padx=4, pady=4)
+        # self.spacehavenGameLabel = Label(self, text="Game Location :", anchor=NE)
+        # self.spacehavenGameLabel.pack(side = LEFT, padx=4, pady=4)
         # game path
         self.spacehavenText = Entry(self.spacehavenPicker)
 
         # damn cant align properly with the "find game" button...
-        self.spacehavenText.pack(fill = X, padx=4, pady=4, anchor = S)
+        self.spacehavenText.pack(fill=X, padx=4, pady=4, anchor=S)
 
         self.spacehavenPicker.pack(fill=X, padx=0, pady=0)
         Frame(self, height=1, bg="grey").pack(fill=X, padx=4, pady=8)
 
         self.quitButton = Button(buttonFrame, text="Quit", command=self.quit)
-        self.quitButton.pack(side=RIGHT, expand = False, padx=8, pady=4)
-        
-        self.annotateButton = Button(buttonFrame, text="Annotate XML", command = lambda: self.start_background_task(self.annotate, "Annotating"))
-        self.annotateButton.pack(side=RIGHT, expand = False, padx=8, pady=4)
-        
-        self.extractButton = Button(buttonFrame, text="Extract game assets", command = lambda: self.start_background_task(self.extract_assets, "Extracting"))
-        self.extractButton.pack(side=RIGHT, expand = False, padx=8, pady=4)
-        
+        self.quitButton.pack(side=RIGHT, expand=False, padx=8, pady=4)
+
+        self.annotateButton = Button(buttonFrame, text="Annotate XML", command=lambda: self.start_background_task(self.annotate, "Annotating"))
+        self.annotateButton.pack(side=RIGHT, expand=False, padx=8, pady=4)
+
+        self.extractButton = Button(buttonFrame, text="Extract game assets", command=lambda: self.start_background_task(self.extract_assets, "Extracting"))
+        self.extractButton.pack(side=RIGHT, expand=False, padx=8, pady=4)
+
         self.modListOpenFolder = Button(buttonFrame, text="Open Mods Folder", command=self.openModFolder)
-        self.modListOpenFolder.pack(side = RIGHT, expand = False, padx=8, pady=4)
+        self.modListOpenFolder.pack(side=RIGHT, expand=False, padx=8, pady=4)
 
         self.modListRefresh = Button(buttonFrame, text="Refresh Mods", command=self.refreshModList)
-        self.modListRefresh.pack(side = RIGHT, expand = False, padx=8, pady=4)
-        
-        self.quickLaunchClear = Button(buttonFrame, text="Clear Quicklaunch file", command=self.clear_quick_launch)
-        self.quickLaunchClear.pack(side = RIGHT, expand = False, padx=8, pady=4)
+        self.modListRefresh.pack(side=RIGHT, expand=False, padx=8, pady=4)
 
-        buttonFrame.pack(fill = X, padx = 4, pady = 8)
+        self.quickLaunchClear = Button(buttonFrame, text="Clear Quicklaunch file", command=self.clear_quick_launch)
+        self.quickLaunchClear.pack(side=RIGHT, expand=False, padx=8, pady=4)
+
+        buttonFrame.pack(fill=X, padx=4, pady=8)
 
         self.autolocateSpacehaven()
 
@@ -218,7 +202,7 @@ class Window(Frame):
 
         # Open previous location if known
         try:
-            with open("previous_spacehaven_path.txt", 'r') as f:
+            with open("previous_spacehaven_path.txt", "r") as f:
                 location = f.read()
                 if os.path.exists(location):
                     self.locateSpacehaven(location)
@@ -233,6 +217,7 @@ class Window(Frame):
             if platform.system() == "Windows":
                 # ONLY import winreg IF we are doing windows
                 import winreg
+
                 registry_path = "SOFTWARE\\WOW6432Node\\Valve\\Steam" if (platform.architecture()[0] == "64bit") else "SOFTWARE\\Valve\\Steam"
                 steam_path = winreg.QueryValueEx(winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, registry_path), "InstallPath")[0]
                 game_executable += ".exe"
@@ -248,7 +233,7 @@ class Window(Frame):
                 # let's see if the game is on the dir
                 if not value["apps"].get("979110"):
                     continue
-                
+
                 self.locateSpacehaven(str(Path(value["path"], "steamapps", "common", "SpaceHaven", game_executable)))
 
         except FileNotFoundError:
@@ -256,7 +241,7 @@ class Window(Frame):
 
         # Brute force method
         for location in POSSIBLE_SPACEHAVEN_LOCATIONS:
-            try: 
+            try:
                 location = os.path.abspath(location)
                 if os.path.exists(location):
                     self.locateSpacehaven(location)
@@ -269,12 +254,12 @@ class Window(Frame):
         if path is None:
             return
 
-        if path.endswith('.app'):
+        if path.endswith(".app"):
             self.gamePath = path
-            self.jarPath = path + '/Contents/Resources/spacehaven.jar'
-            self.modPath = path + '/Contents/Resources/mods'
+            self.jarPath = path + "/Contents/Resources/spacehaven.jar"
+            self.modPath = path + "/Contents/Resources/mods"
 
-        elif path.endswith('.jar'):
+        elif path.endswith(".jar"):
             self.gamePath = path
             self.jarPath = path
             self.modPath = os.path.join(os.path.dirname(path), "mods")
@@ -292,27 +277,28 @@ class Window(Frame):
         ui.log.log("  gamePath: {}".format(self.gamePath))
         ui.log.log("  modPath: {}".format(self.modPath))
         ui.log.log("  jarPath: {}".format(self.jarPath))
-        
-        
-        with open("previous_spacehaven_path.txt", 'w') as f:
+
+        with open("previous_spacehaven_path.txt", "w") as f:
             f.write(path)
-        
+
         self.checkForLoadedMods()
 
-        self.gameInfo = ui.gameinfo.GameInfo(self.jarPath)
+        self.gameInfo = GameInfo(self.jarPath)
 
-        self.spacehavenText.delete(0, 'end')
+        self.spacehavenText.delete(0, "end")
         self.spacehavenText.insert(0, self.gamePath)
-        
-        self.modPath = [self.modPath, ]
+
+        self.modPath = [
+            self.modPath,
+        ]
         try:
-            with open("extra_mods_path.txt", 'r') as f:
-                for mod_path in f.read().split('\n'):
+            with open("extra_mods_path.txt", "r") as f:
+                for mod_path in f.read().split("\n"):
                     if mod_path.strip():
                         self.modPath.append(mod_path.strip())
         except:
             pass
-        
+
         DatabaseHandler(self.modPath, self.gameInfo)
         self.refreshModList()
 
@@ -324,15 +310,15 @@ class Window(Frame):
 
     def browseForSpacehaven(self):
         import platform
-        
+
         filetypes = []
         if platform.system() == "Windows":
-            filetypes.append(('spacehaven.exe', '*.exe'))
+            filetypes.append(("spacehaven.exe", "*.exe"))
         elif platform.system() == "Darwin":
-            filetypes.append(('spacehaven.app', '*.app'))
+            filetypes.append(("spacehaven.app", "*.app"))
         elif platform.system() == "Linux":
-            filetypes.append(('all files', '*'))
-        
+            filetypes.append(("all files", "*"))
+
         self.locateSpacehaven(
             filedialog.askopenfilename(
                 parent=self.master,
@@ -340,8 +326,8 @@ class Window(Frame):
                 filetypes=filetypes,
             )
         )
-    
-    #def focus(self, _arg=None):
+
+    # def focus(self, _arg=None):
     #    # disabled, refreshes too much and resets the selection
     #    # self.refreshModList()
     #    pass
@@ -360,26 +346,26 @@ class Window(Frame):
             return
 
         DatabaseHandler.getInstance().locateMods()
-        
+
         mod_idx = 0
         for mod in DatabaseHandler.getRegisteredMods():
             self.modList.insert(END, mod.title())
             mod.display_idx = mod_idx
-            
+
             self.update_list_style(mod)
             if previously_selected and mod == previously_selected.name:
                 self.modList.selection_set(mod_idx)
             mod_idx += 1
-        
+
         self.check_quick_launch()
         self.showCurrentMod()
-    
+
     def update_list_style(self, mod):
         if mod.enabled:
-            self.modList.itemconfig(mod.display_idx, foreground = 'black', selectforeground = 'white')
+            self.modList.itemconfig(mod.display_idx, foreground="black", selectforeground="white")
         else:
-            self.modList.itemconfig(mod.display_idx, foreground = 'grey', selectforeground = 'lightgrey')
-    
+            self.modList.itemconfig(mod.display_idx, foreground="grey", selectforeground="lightgrey")
+
     def selected_mod(self):
         if DatabaseHandler.getInstance().isEmpty():
             return None
@@ -390,57 +376,58 @@ class Window(Frame):
             selected = self.modList.curselection()[0]
 
         return DatabaseHandler.getRegisteredMods()[selected]
-            
+
     def showCurrentMod(self, _arg=None):
         self.showMod(self.selected_mod())
-    
+
     def toggle_current_mod(self):
         mod = self.selected_mod()
         if not mod:
             return
-        
+
         if mod.enabled:
             mod.disable()
         else:
             mod.enable()
-        
+
         self.update_list_style(mod)
         self.showMod(mod)
         self.check_quick_launch()
-    
+
     def update_description(self, description):
         self.modDetailsDescription.config(state="normal")
         self.modDetailsDescription.delete(1.0, END)
         self.modDetailsDescription.insert(END, description)
         self.modDetailsDescription.config(state="disabled")
 
-    def create_ModConfigVariableEntry(self, configFrame:Frame, mod:ui.database.Mod, var:ui.database.ModConfigVar):
+    def create_ModConfigVariableEntry(self, configFrame: Frame, mod: ui.database.Mod, var: ui.database.ModConfigVar):
         # TODO: Maybe change this to use grid instead of pack for better presentation?
         valFrame = Frame(configFrame)
         # label for variable description
-        Label(valFrame,text=var.desc).pack(side=LEFT)
+        Label(valFrame, text=var.desc).pack(side=LEFT)
 
-        # Entry for value 
+        # Entry for value
         tk_value = StringVar(valFrame, value=var.value)
+
         def _value_update(name, index, mode, mod, var, tk_value):
             var.value = tk_value.get()
+
         # Checkbox option
-        if (var.type == "toggle"):
-            c1 = Checkbutton(valFrame,variable=tk_value,onvalue=var.max,offvalue=var.min)
+        if var.type == "toggle":
+            c1 = Checkbutton(valFrame, variable=tk_value, onvalue=var.max, offvalue=var.min)
             c1.pack()
         # Else uses entry text
         else:
-            entryValue = Entry(valFrame,textvariable=tk_value)
+            entryValue = Entry(valFrame, textvariable=tk_value)
             entryValue.pack(side=RIGHT)
 
-        tk_value.trace('w', lambda name,index,mode : _value_update(name,index,mode,mod,var,tk_value) )
-
+        tk_value.trace("w", lambda name, index, mode: _value_update(name, index, mode, mod, var, tk_value))
 
         # Link the UI variable back to the config variable for later.
         var.ui_stringvar = tk_value
 
         # label for debug information
-        #Label(valFrame,text="").pack(side=RIGHT)
+        # Label(valFrame,text="").pack(side=RIGHT)
 
         valFrame.pack(fill=X)
         return
@@ -454,14 +441,14 @@ class Window(Frame):
             var.value = var.default
         self.modConfigFrame.update()
 
-    def update_mod_config_ui(self,mod:ui.database.Mod):
+    def update_mod_config_ui(self, mod: ui.database.Mod):
         try:
             self.modConfigFrame.destroy()
         except:
             pass
-        
+
         try:
-            if len(mod.variables)>0:
+            if len(mod.variables) > 0:
                 self.modConfigFrame = ScrollableFrame(self.modDetailsWindow)
             else:
                 return
@@ -471,89 +458,90 @@ class Window(Frame):
         # Reset button at top.
         resetFrame = Frame(self.modConfigFrame.scrollable_frame)
         resetButton = Button(resetFrame, text="Reset to Defaults", anchor=NE, command=self.reset_ModConfigVariables)
-        resetButton.pack(side = RIGHT, padx=4, pady=4)
+        resetButton.pack(side=RIGHT, padx=4, pady=4)
         resetFrame.pack(fill=X)
 
         for v in mod.variables:
-            self.create_ModConfigVariableEntry( self.modConfigFrame.scrollable_frame, mod, v)
+            self.create_ModConfigVariableEntry(self.modConfigFrame.scrollable_frame, mod, v)
 
         self.modConfigFrame.update()
         self.modDetailsWindow.add(self.modConfigFrame, minsize=self.modConfigFrame.winfo_reqheight())
         self.modDetailsWindow.update()
 
-    def showMod(self, mod:ui.database.Mod):
+    def showMod(self, mod: ui.database.Mod):
         if not mod:
             return self.showModError("No mods found", "Please install some mods into your mods folder.")
-        
+
         title = mod.title()
         if mod.enabled:
             command_label = "Disable"
         else:
             command_label = "Enable"
             title += " [DISABLED]"
-        
-        self.modDetailsName.config(text = title)
-        self.modEnableDisable.config(text = command_label)
+
+        self.modDetailsName.config(text=title)
+        self.modEnableDisable.config(text=command_label)
         self.update_description(mod.getDescription())
         self.update_mod_config_ui(mod)
-    
+
     def showModError(self, title, error):
-        self.modDetailsName.config(text = title)
+        self.modDetailsName.config(text=title)
         self.update_description(error)
-        
+
     def openModFolder(self):
         ui.launcher.open(self.modPath[0])
-    
+
     def set_ui_state(self, state, message):
-        self.launchButton.config(state = state, text = message)
-        self.modEnableDisable.config(state = state)
-        self.spacehavenBrowse.config(state = state)
-        self.quickLaunchClear.config(state = state)
-        self.modListRefresh.config(state = state)
-        self.modListOpenFolder.config(state = state)
-        self.extractButton.config(state = state)
-        self.annotateButton.config(state = state)
-        self.quitButton.config(state = state)
-    
+        self.launchButton.config(state=state, text=message)
+        self.modEnableDisable.config(state=state)
+        self.spacehavenBrowse.config(state=state)
+        self.quickLaunchClear.config(state=state)
+        self.modListRefresh.config(state=state)
+        self.modListOpenFolder.config(state=state)
+        self.extractButton.config(state=state)
+        self.annotateButton.config(state=state)
+        self.quitButton.config(state=state)
+
     can_quit = True
+
     def disable_UI(self, message):
         self.set_ui_state(DISABLED, message)
-        self.config(cursor = 'wait')
+        self.config(cursor="wait")
         self.can_quit = False
-    
+
     def enable_UI(self, message):
         self.set_ui_state(NORMAL, message)
-        self.config(cursor = '')
+        self.config(cursor="")
         self.can_quit = True
-    
+
     background_refresh_delay = 1000
     background_thread = None
     background_finished = True
-    
+
     def start_background_task(self, task, message):
         self.disable_UI(message)
-        
+
         ui.log.logger.backgroundState = message
-        
+
         self.background_finished = False
         # for counting the iterations in update_background_state
         self.background_counter = 0
-        
+
         def _wrapper():
             try:
                 task()
             finally:
                 self.background_finished = True
-        
-        self.background_thread = threading.Thread(target = _wrapper)
+
+        self.background_thread = threading.Thread(target=_wrapper)
         self.background_thread.start()
         self.after(self.background_refresh_delay, self.update_background_state)
-        
+
     def update_background_state(self):
         extra_label = "." * (self.background_counter % 5)
         self.background_counter += 1
-        
-        self.launchButton.config(text = extra_label + " " + ui.log.logger.backgroundState + " " + extra_label)
+
+        self.launchButton.config(text=extra_label + " " + ui.log.logger.backgroundState + " " + extra_label)
         if self.background_finished:
             self.background_thread.join()
             self.background_thread = None
@@ -561,16 +549,16 @@ class Window(Frame):
             self.check_quick_launch()
         else:
             self.after(self.background_refresh_delay, self.update_background_state)
-    
+
     def _core_extract_path(self):
         return os.path.join(self.modPath[0], "spacehaven_" + self.gameInfo.version)
-    
+
     def extract_assets(self):
         corePath = self._core_extract_path()
-        
+
         loader.extract.extract(self.jarPath, corePath)
-        ui.launcher.open(os.path.join(corePath, 'library'))
-    
+        ui.launcher.open(os.path.join(corePath, "library"))
+
     def annotate(self):
         corePath = self._core_extract_path()
         ui.log.log(f"Annotating and putting files in {corePath}")
@@ -579,48 +567,48 @@ class Window(Frame):
         except Exception as e:
             ui.log.log("  Error during annotation!")
             ui.log.log(repr(e))
-        
-        ui.launcher.open(os.path.join(corePath, 'library'))
-    
+
+        ui.launcher.open(os.path.join(corePath, "library"))
+
     def mods_enabled(self):
         return DatabaseHandler.getActiveMods()
-    
+
     def current_mods_signature(self):
         import hashlib
-        
+
         mods_signature = ["spacehaven", self.gameInfo.version]
-        # mods are supposedly ordered alphabetically 
+        # mods are supposedly ordered alphabetically
         for mod in self.mods_enabled():
             mods_signature.append(mod.name)
             mods_signature.append(mod.version or "VERSION_UNKNOWN")
-        
+
         text_sig = "__".join(mods_signature).lower()
-        md5 = hashlib.md5(text_sig.encode('utf-8')).hexdigest()
+        md5 = hashlib.md5(text_sig.encode("utf-8")).hexdigest()
         return md5
-    
+
     def quick_launch_available(self):
         mods_sig = self.current_mods_signature()
         return os.path.isfile(loader.load.quick_launch_filename(mods_sig))
-    
+
     def check_quick_launch(self):
         if not self.mods_enabled():
             self.launchButton_default_text = "LAUNCH ORIGINAL GAME"
-            self.quickLaunchClear.config(state = DISABLED)
+            self.quickLaunchClear.config(state=DISABLED)
         elif self.quick_launch_available():
             self.launchButton_default_text = "QUICKLAUNCH!"
-            self.quickLaunchClear.config(state = NORMAL)
+            self.quickLaunchClear.config(state=NORMAL)
         else:
             self.launchButton_default_text = "LAUNCH!"
-            self.quickLaunchClear.config(state = DISABLED)
-        self.launchButton.config(text = self.launchButton_default_text)
-    
+            self.quickLaunchClear.config(state=DISABLED)
+        self.launchButton.config(text=self.launchButton_default_text)
+
     def clear_quick_launch(self):
         try:
             os.unlink(loader.load.quick_launch_filename(self.current_mods_signature()))
         except:
             pass
         self.check_quick_launch()
-    
+
     def launch_wrapper(self):
         if not self.mods_enabled():
             task = self.launch_vanilla
@@ -631,25 +619,26 @@ class Window(Frame):
         else:
             task = self.patchAndLaunch
             message = "Launching"
-        
+
         self.start_background_task(task, message)
-    
+
     def launch_vanilla(self):
         ui.launcher.launchAndWait(self.gamePath)
-    
+
     def quick_launch(self):
         try:
             loader.load.quickload(self.jarPath, self.current_mods_signature())
             ui.launcher.launchAndWait(self.gamePath)
             # FIXME this will crash if the game restarts by itself (changing language)
             loader.load.unload(self.jarPath)
-        except Exception as ex:
+        except:
             import traceback
+
             traceback.print_exc()
             messagebox.showerror("Error during quick launch", traceback.format_exc(3))
-    
+
     def patchAndLaunch(self):
-        #activeModPaths = [mod.path for mod in DatabaseHandler.getActiveMods()]
+        # activeModPaths = [mod.path for mod in DatabaseHandler.getActiveMods()]
 
         activeMods = DatabaseHandler.getActiveMods()
         xmlMods = []
@@ -666,24 +655,24 @@ class Window(Frame):
         # If any active mods have variables, save them.
         for mod in activeMods:
             if mod.variables:
-                #mod.info_xml.write(mod.info_file)
+                # mod.info_xml.write(mod.info_file)
                 mod.saveConfig()
 
-        
         try:
             loader.load.load(self.jarPath, xmlMods, self.current_mods_signature())
             ui.launcher.launchAndWait(self.gamePath)
             loader.load.unload(self.jarPath)
-        except Exception as ex:
+        except:
             import traceback
+
             traceback.print_exc()
             messagebox.showerror("Error loading mods", traceback.format_exc(3))
-    
+
     def quit(self):
         if self.can_quit:
             self.master.destroy()
             return
-        
+
         messagebox.showerror("Error", "Cannot quit while a task is running!")
 
 
@@ -693,8 +682,7 @@ def handleException(type, value, trace):
     ui.log.log("!! Exception !!")
     ui.log.log(message)
 
-    messagebox.showerror("Error", "Sorry, something went wrong!\n\n"
-                                  "Please open an issue at https://github.com/CyanBlob/spacehaven-modloader and attach logs.txt from your mods/ folder.")
+    messagebox.showerror("Error", "Sorry, something went wrong!\n\n" "Please open an issue at https://github.com/CyanBlob/spacehaven-modloader and attach logs.txt from your mods/ folder.")
 
 
 if __name__ == "__main__":
@@ -713,4 +701,16 @@ if __name__ == "__main__":
     root.update_idletasks()
     root.after(0, fixNoButtonLabelsBug)
     root.protocol("WM_DELETE_WINDOW", app.quit)
+    icon = None
+    try:
+        icon = PhotoImage(file="spacehaven-modloader.png")
+    except:
+        pass
+    if icon is None:
+        try:
+            icon = PhotoImage(file="./_internal/spacehaven-modloader.png")
+        except:
+            pass
+    if icon is not None:
+        root.iconphoto(True, icon)
     root.mainloop()
