@@ -1,6 +1,6 @@
 # Change Log
 
-## v0.11.7
+## v0.12.0
 ### New Modifiable Stuff
 - Added modding of library/audio
 ### Engine
