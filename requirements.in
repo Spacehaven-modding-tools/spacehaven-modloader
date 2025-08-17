@@ -1,0 +1,10 @@
+setuptools==v80.4.0
+cx-Freeze==8.3.0
+pyinstaller==6.14.2
+pyinstaller-hooks-contrib==2025.8
+
+lxml==5.4.0
+pypng==0.0.20
+rectpack==0.2.1
+vdf==3.4
+zipfile39==0.0.8.0
