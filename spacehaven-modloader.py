@@ -14,6 +14,7 @@ from tkinter import filedialog, messagebox, ttk, font, scrolledtext
 import loader.extract
 import loader.load
 import ui.database
+from loader.assets.annotate import annotate
 from ui.gameinfo import GameInfo
 import ui.header
 import ui.launcher
@@ -563,7 +564,7 @@ class Window(Frame):
         corePath = self._core_extract_path()
         ui.log.log(f"Annotating and putting files in {corePath}")
         try:
-            loader.assets.annotate.annotate(corePath)
+            annotate(corePath)
         except Exception as e:
             ui.log.log("  Error during annotation!")
             ui.log.log(repr(e))
