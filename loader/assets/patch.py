@@ -205,11 +205,11 @@ patchDispatcher = {
     "Add": NodeAdd,  # this was kept because of retrocompatibility
     "AddNode": NodeAdd,  # this was kept because of retrocompatibility
     "NodeAdd": NodeAdd,  # this was kept because of retrocompatibility
-    
+
     "AddFirst": NodeAddFirst,
     "AddNodeFirst": NodeAddFirst,
     "NodeAddFirst": NodeAddFirst,
-    
+
     "AddLast": NodeAdd,
     "AddNodeLast": NodeAdd,
     "NodeAddLast": NodeAdd,
@@ -253,6 +253,7 @@ def doPatchType(coreLib, mod: dict, patch: lxml.etree._Element, location: str):
 
     # Log
     log = [""]
+    log.append(lxml.etree.tostring(patch, pretty_print=True).decode())
     log.append(f"    {patchType.upper():15}")
     log.append(f"      xpath:      {xpath}")
     log.append(f"      matches:    {count:<3}")
@@ -353,6 +354,8 @@ def doPatches(coreLib, modLib, mod: dict):
 
                 # Skip XML comments
                 if isinstance(patchOperation, lxml.etree._Comment):
+                    ui.log.log("Skipping comment in patching")
+                    ui.log.log(lxml.etree.tostring(patchOperation, pretty_print=True).decode())
                     continue
 
                 try:

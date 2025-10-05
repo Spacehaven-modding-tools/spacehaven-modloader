@@ -543,6 +543,8 @@ def mergeDefinitions(baseLibrary, modLibrary, file, xpath, idAttribute):
         for element in list(modRoot):
 
             if isinstance(element, lxml.etree._Comment):
+                ui.log.log("Skipping comment in merge")
+                ui.log.log(lxml.etree.tostring(element, pretty_print=True).decode())
                 continue
 
             # TODO auto-id algo: if element.get(idAttribute + "_auto") then
@@ -552,6 +554,8 @@ def mergeDefinitions(baseLibrary, modLibrary, file, xpath, idAttribute):
             for conflict in conflicts:
                 baseRoot.remove(conflict)
 
+            ui.log.log("Merging XML:")
+            ui.log.log(lxml.etree.tostring(element, pretty_print=True).decode())
             baseRoot.append(copy.deepcopy(element))
             merged += 1
 
