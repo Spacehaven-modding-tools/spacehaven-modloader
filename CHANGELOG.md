@@ -1,4 +1,6 @@
 # Change Log
+## v0.12.1
+- Fix build missing annotate code
 
 ## v0.12.0
 ### New Modifiable Stuff
