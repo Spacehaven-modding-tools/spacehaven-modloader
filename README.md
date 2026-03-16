@@ -9,7 +9,7 @@ A possible official modding tool from Bugbyte in the future comes down to the fe
 
 ## Getting Started
 
-Download the [latest release](https://github.com/CyanBlob/spacehaven-modloader/releases) and fire it up.
+Download the [latest release](https://github.com/Spacehaven-modding-tools/spacehaven-modloader/releases) and fire it up.
 
 ![Screenshot](/tools/screenshot.png?raw=true)
 
@@ -57,7 +57,7 @@ There are two types of mods supported by the modloader. These are XML mods, whic
 ### Code Injection Mods
 These mods use AspectJ (similar to Harmony in C#) to allow you to inject code before, after, and around the game's existing functions, method calls, and field accesses. This functionality makes code injection mods extremely poewrful, but they require programming knowledge (or patience and a willingness to learn) to create. You'll also want a tool that allows you to decompile `spacehaven.jar`. I recommend [JD GUI](https://github.com/java-decompiler/jd-gui) as it seemed to work the best out of the few options I tried. The game's code is not obfuscated, so the decompilation process is relatively painless. 
 
-There's a [template repo](https://github.com/CyanBlob/SpaceHavenModTemplate) that you can use as a basis for creating your own code injection mod. The template repo includes instructions on how to set up your dev environment as well as some basic sample mods.
+There's a [template repo](https://github.com/Spacehaven-modding-tools/SpaceHavenModTemplate) that you can use as a basis for creating your own code injection mod. The template repo includes instructions on how to set up your dev environment as well as some basic sample mods.
 
 ### XML Mods
 
@@ -150,4 +150,3 @@ The loader can overwrite existing textures from the base game and add new ones. 
 To add a new texture, you need to add a `<re n="..." t="..." />` entry in `library/textures.xml`. Textures are packed together in `.cim` files, which are defined in `<t i="..." />` entries. The `re` entry references the `t` entry through it's index `i`. Take care of choosing reasonably unique indexes to avoid conflicts. Once this is done, you can add the `123456.png` file to the `textures` directory. 
 
 When loading your mod, the modloader will output the png version of the packed texture file for debugging purposes. This will allow you to check proper placement for new textures, or correct merging for existing ones.
-
