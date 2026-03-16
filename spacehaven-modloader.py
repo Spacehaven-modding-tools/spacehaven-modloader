@@ -507,7 +507,12 @@ class Window(Frame):
 
     def disable_UI(self, message):
         self.set_ui_state(DISABLED, message)
-        self.config(cursor="wait")
+        # Handle OS dependent specific cursor
+        os_name = platform.system()
+        if os_name == "Windows":
+            self.config(cursor="wait")
+        else:
+            self.config(cursor="watch")
         self.can_quit = False
 
     def enable_UI(self, message):
