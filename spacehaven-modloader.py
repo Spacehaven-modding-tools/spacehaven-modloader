@@ -5,7 +5,7 @@ import platform
 import threading
 import traceback
 import vdf
-from pathlib import Path
+from pathlib import Path, PurePath
 from tkinter import *
 from tkinter import filedialog, messagebox, ttk, font, scrolledtext
 
@@ -198,6 +198,7 @@ class Window(Frame):
 
     def autolocateSpacehaven(self):
         self.gamePath = None
+        self.workshopPath: str = None
         self.jarPath = None
         self.modPath = None
 
@@ -270,12 +271,18 @@ class Window(Frame):
             self.jarPath = os.path.join(os.path.dirname(path), "spacehaven.jar")
             self.modPath = os.path.join(os.path.dirname(path), "mods")
 
+        # determine relative workshop path from gamePath
+        # we assume the workshop assets is always on the same drive as the game
+        workshop_path = Path(self.gamePath).parents[2].joinpath(PurePath("workshop/content/979110"))
+        self.workshopPath = str(workshop_path)
+
         if not os.path.exists(self.modPath):
             os.mkdir(self.modPath)
 
         ui.log.setGameModPath(self.modPath)
         ui.log.log("Discovered game at {}".format(path))
         ui.log.log("  gamePath: {}".format(self.gamePath))
+        ui.log.log("  workshopPath: {}".format(self.workshopPath))
         ui.log.log("  modPath: {}".format(self.modPath))
         ui.log.log("  jarPath: {}".format(self.jarPath))
 
@@ -291,6 +298,7 @@ class Window(Frame):
 
         self.modPath = [
             self.modPath,
+            self.workshopPath
         ]
         try:
             with open("extra_mods_path.txt", "r") as f:
