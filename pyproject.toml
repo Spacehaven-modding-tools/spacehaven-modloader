@@ -1,2 +1,59 @@
-[tool.black]
-line-length = 200
+[project]
+name = "spacehaven-modloader"
+version = "0.12.6"
+description = "Space Haven Mod Loader"
+readme = "README.md"
+requires-python = ">=3.11.9"
+dependencies = [
+    "cx-freeze==8.6.4",
+    "lxml==5.4.0",
+    "pyinstaller==6.14.2",
+    "pyinstaller-hooks-contrib==2025.8",
+    "pypng==0.0.20",
+    "rectpack==0.2.1",
+    "setuptools==80.4.0",
+    "vdf==3.4",
+    "zipfile39==0.0.8.0",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.12",
+]
+
+[tool.uv]
+package = false
+
+[tool.setuptools]
+packages = ["loader", "ui"]
+py-modules = ["spacehaven-modloader", "version"]
+
+[tool.uv.extra-build-dependencies]
+spacehaven-modloader = ["cx_Freeze"]
+
+[tool.cxfreeze]
+executables = [
+    {script = "spacehaven-modloader.py", base = "gui"}
+]
+
+[tool.cxfreeze.build_exe]
+build_exe = "build/spacehaven-modloader"
+packages = ["lxml", "png", "rectpack", "zipfile39"]
+includes = ["vdf"]
+include_files = [
+    "spacehaven-modloader.png",
+    "textures_annotations.xml",
+    "aspectj-1.9.19.jar",
+    "aspectjweaver-1.9.19.jar",
+    ["spacehaven_modloader.egg-info", "lib/spacehaven_modloader.egg-info"]
+]
+
+[tool.cxfreeze.bdist_mac]
+custom_info_plist = "tools/Info.plist"
+
+[tool.ruff]
+line-length=200
+exclude=["env", "header.py"]
+
+[tool.ruff.lint]
+extend-ignore = ["E266", "E501", "E722", "F403", "F405"]
