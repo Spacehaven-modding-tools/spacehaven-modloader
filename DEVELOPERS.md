@@ -8,18 +8,20 @@ to facilitate development.
 
 ## Prerequisites
 
-- pyenv (recommended) — used to install and manage Python versions
-- virtualenv — used to create an isolated environment for the project
-- pip — Python package installer
-- Git — to clone the repository
+- git — to clone the repository
+- uv — Python package and project manager
 
+
+## Install uv
+`uv` is a project and package manager for Python.
+If you don't have uv installed, follow the official instructions for your platform at
+https://docs.astral.sh/uv/getting-started/installation/
 
 ## Cloning the repository
 
-For the remainder of this document, we'll assume you:
-- cloned the repository to your local machine
-- the working directory is the root of the repository
+`git clone` the repository into your Projects folder.
 
+For the remainder of this document, we'll assume the working directory is the root of the repository.
 
 ## Installing pyenv
 
@@ -31,39 +33,28 @@ pyenv is a tool that lets you switch between multiple versions of Python.
 ## Installing Python
 
 This repository contains a `.python-version` file pinning Python to a specific version.
-If you don't have the correct version installed, recommend using pyenv to install:
+`uv` should automaatically install the declared version.
 
+Alternatively, you can manually install python with the uv command:
 ```shell
-pyenv install 3.11.9
+uv python install 3.11.9
 ```
 
+## Set up Virtual Environment
 
-## Setup Virtual Environment
+`uv` will create a virtual environment to isolate the project's dependencies from your system Python installation.
 
-The virtual environment is used to isolate the project's dependencies from your system Python installation.
-
-Create and activate a Python virtual environment:
-```
-python -m venv venv
-source venv/bin/activate
-```
-
-In the active environment, Install Python dependencies:
-```
-pip install -r requirements.txt
-```
-
-If developing, install development dependencies:
-```
-pip install -r requirements-dev.txt
+Install Python dependencies:
+```shell
+uv sync --frozen
 ```
 
 
 ## Running the loader
 
-In the active environment, Run the loader:
+Run the loader with the command:
 ```
-python spacehaven_modloader.py
+uv run python spacehaven-modloader.py
 ```
 
 It is possible to avoid activating the virtual environment for future invocations by running the loader with the path

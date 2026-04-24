@@ -1,0 +1,38 @@
+name: "Build NSIS installer"
+description: "Create NSIS installer for Windows"
+inputs:
+  generator-cmd:
+    description: "Use to generate nsi file"
+    required: true
+  nsi-file:
+    description: "NSIS configuration file"
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Prepare dist folder
+      shell: powershell
+      run: |
+        if (Test-Path dist) { Remove-Item dist\* -Force }
+        else { New-Item dist -ItemType Directory }
+
+    - name: Generate NSIS file list and installer script
+      shell: powershell
+      run: |
+        ${{ inputs.generator-cmd }}
+
+    - name: Cache NSIS
+      uses: actions/cache@v5
+      with:
+        path: C:\"Program Files (x86)"\NSIS
+        key: ${{ runner.os }}\nsis
+
+    - name: Install NSIS
+      shell: powershell
+      run: choco install nsis -y
+
+    - name: Build NSIS installer
+      shell: powershell
+      run: |
+        C:\"Program Files (x86)"\NSIS\makensis.exe ${{ inputs.nsi-file }}

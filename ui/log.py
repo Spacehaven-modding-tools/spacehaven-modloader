@@ -1,4 +1,5 @@
 import os
+import sys
 
 import version
 
@@ -47,6 +48,8 @@ class Logger:
 
     def logInitialInfo(self):
         self.log("Space Haven Modloader v{}".format(version.version))
+        self.log(f"version defined by {version.source}")
+        self.log(f"Python: {sys.implementation.name} {sys.version}")
 
     def log(self, message=""):
         print("[LOG] {}".format(message))
