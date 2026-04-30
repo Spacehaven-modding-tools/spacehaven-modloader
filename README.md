@@ -1,11 +1,6 @@
 # Space Haven Mod Loader
 
-This is an unofficial modding tool for [Space Haven by Bugbyte](http://bugbyte.fi/spacehaven/), a spaceship colony sim.
-
-It is **not associated with Bugbyte or Space Haven in any way** other than that it makes some modding possible for the game. This tool is intended to be a sneak peek at what modding might be able to do.
-
-A possible official modding tool from Bugbyte in the future comes down to the feasibility of such a tool. It all depends on how much time needs to be invested and how extensive it can be made. There have been no promises of an official extensive modding tool.
-
+This is a modding tool for [Space Haven by Bugbyte](http://bugbyte.fi/spacehaven/), a spaceship colony sim.
 
 ## Getting Started
 
