@@ -417,7 +417,7 @@ class Window(Frame):
         # TODO: Maybe change this to use grid instead of pack for better presentation?
         valFrame = Frame(configFrame)
         # label for variable description
-        Label(valFrame, text=var.desc).pack(side=LEFT)
+        varLabel = Label(valFrame, text=var.desc, anchor=W).pack(side=LEFT)
 
         # Entry for value
         tk_value = StringVar(valFrame, value=var.value)
@@ -705,12 +705,12 @@ def handleException(type, value, trace):
 
 if __name__ == "__main__":
     root = Tk()
-    root.geometry("890x669")
+    root.geometry("1080x669")
     root.report_callback_exception = handleException
 
     # HACK: Button labels don't appear until the window is resized with py2app
     def fixNoButtonLabelsBug():
-        root.geometry("890x670")
+        root.geometry("1080x670")
 
     root.resizable(True, True)
 
