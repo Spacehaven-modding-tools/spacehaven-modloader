@@ -1,11 +1,11 @@
 # Required to annotate ModDatabase.getInstance() with own type
 from __future__ import annotations
 
-import distutils.version
 import os
 import sys
 from xml.etree import ElementTree
 import json
+from packaging.version import Version
 
 import version
 import ui.log
@@ -350,7 +350,7 @@ class Mod:
 
     def verifyLoaderVersion(self, mod):
         self.minimumLoaderVersion = mod.find("minimumLoaderVersion").text
-        if distutils.version.StrictVersion(self.minimumLoaderVersion) > distutils.version.StrictVersion(version.version):
+        if Version(self.minimumLoaderVersion) > Version(version.version):
             self.warn("Mod loader version {} is required".format(self.minimumLoaderVersion))
 
         ui.log.log("    Minimum Loader Version: {}".format(self.minimumLoaderVersion))
@@ -463,11 +463,15 @@ class JarMod(Mod):
             ui.log.log("    Failed to enable JAR mod: {}".format(ex))
 
     def disable(self):
-        with open(os.path.join(self.path, DISABLED_MARKER), "w") as marker:
-            marker.write("this mod is disabled, remove this file to enable it again (or toggle it via the modloader UI)")
         self.enabled = False
 
         self._log_paths("disable")
+
+        try:
+            with open(os.path.join(self.path, DISABLED_MARKER), "w") as marker:
+                marker.write("this mod is disabled, remove this file to enable it again (or toggle it via the modloader UI)")
+        except Exception as ex:
+            ui.log.log("    Failed to write disabled marker: {}".format(ex))
 
         if not os.path.isfile(self.configPath):
             ui.log.log("    config.json does not exist; classPath cleanup skipped.")
