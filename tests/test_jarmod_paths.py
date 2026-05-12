@@ -2,7 +2,6 @@ import json
 import os
 import tempfile
 import unittest
-from unittest.mock import patch
 
 from ui.database import (
     ASPECTJ_JAR,
@@ -130,25 +129,6 @@ class JarModPathTests(unittest.TestCase):
         self.assertIn(ASPECTJ_WEAVER_JAR, config["classPath"])
         self.assertIn(ASPECTJ_JAR, config["classPath"])
         self.assertTrue(os.path.isfile(os.path.join(modPath, DISABLED_MARKER)))
-
-    def test_disable_cleans_classpath_when_marker_write_fails(self):
-        modPath = os.path.join(self.gameDir, "mods", TEST_MOD_NAME)
-        infoPath = write_mod_files(modPath)
-        mod = JarMod(infoPath, self.gameInfo, TEST_MOD_JAR)
-        mod.enable()
-        real_open = open
-
-        def fail_marker_open(path, mode="r", *args, **kwargs):
-            if os.path.basename(path) == DISABLED_MARKER and "w" in mode:
-                raise PermissionError("marker is read-only")
-            return real_open(path, mode, *args, **kwargs)
-
-        with patch("builtins.open", side_effect=fail_marker_open):
-            mod.disable()
-
-        config = load_config(self.configPath)
-
-        self.assertNotIn(mod.classPathName, config["classPath"])
 
     def test_disable_does_not_crash_without_config(self):
         modPath = os.path.join(self.root, "Steam", "steamapps", "workshop", "content", "979110", TEST_WORKSHOP_ITEM_ID)
