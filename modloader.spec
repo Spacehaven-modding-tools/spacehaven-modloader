@@ -9,6 +9,8 @@ a = Analysis(
     datas=[
         ('spacehaven-modloader.png', '.'),
         ('textures_annotations.xml','.'), 
+        ('aspectj-1.9.19.jar','.'),
+        ('aspectjweaver-1.9.19.jar','.'),
         ('README.md','.'), 
         ('CHANGELOG.md','.')
     ],

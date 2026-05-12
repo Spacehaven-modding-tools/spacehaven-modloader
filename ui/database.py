@@ -3,12 +3,63 @@ from __future__ import annotations
 
 import distutils.version
 import os
+import sys
 from xml.etree import ElementTree
 import json
 
 import version
 import ui.log
 import shutil
+
+ASPECTJ_VERSION = "1.9.19"
+ASPECTJ_JAR = "aspectj-{}.jar".format(ASPECTJ_VERSION)
+ASPECTJ_WEAVER_JAR = "aspectjweaver-{}.jar".format(ASPECTJ_VERSION)
+ASPECTJ_JAVAAGENT = "-javaagent:./{}".format(ASPECTJ_WEAVER_JAR)
+
+
+def resolve_game_dir(gameInfo):
+    if not getattr(gameInfo, "jarPath", None):
+        raise ValueError("Could not resolve Space Haven directory because jarPath is empty.")
+    return os.path.dirname(os.path.abspath(gameInfo.jarPath))
+
+
+def resolve_config_path(gameInfo):
+    return os.path.join(resolve_game_dir(gameInfo), "config.json")
+
+
+def normalize_classpath_entry(path):
+    return os.path.normpath(os.path.abspath(path)).replace("\\", "/")
+
+
+def _resource_path(file_name):
+    if getattr(sys, "frozen", False):
+        base_dir = os.path.dirname(sys.executable)
+    else:
+        base_dir = os.getcwd()
+
+    candidates = [
+        os.path.join(base_dir, file_name),
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), file_name),
+        os.path.abspath(file_name),
+    ]
+
+    for candidate in candidates:
+        if os.path.isfile(candidate):
+            return candidate
+
+    return candidates[0]
+
+
+def _insert_once(values, value, index):
+    if value not in values:
+        values.insert(min(index, len(values)), value)
+
+
+def _write_json_file(path, jsonObj):
+    tmp_path = path + ".tmp"
+    with open(tmp_path, "w", encoding="utf-8") as outFile:
+        json.dump(jsonObj, outFile, indent=4)
+    os.replace(tmp_path, path)
 
 
 class ModDatabase:
@@ -336,69 +387,110 @@ class JarMod(Mod):
     def __init__(self, info_file, gameInfo, jarModFileName):
         super().__init__(info_file, gameInfo)
         self.jarModFileName = jarModFileName
-        self.classPathName = self.path + "/" + jarModFileName
+        self.jarPath = os.path.join(self.path, jarModFileName)
+        self.classPathName = normalize_classpath_entry(self.jarPath)
+        self.gameDir = resolve_game_dir(gameInfo)
+        self.configPath = resolve_config_path(gameInfo)
+
+    def _copy_aspectj(self):
+        for fileName in [ASPECTJ_JAR, ASPECTJ_WEAVER_JAR]:
+            sourcePath = _resource_path(fileName)
+            targetPath = os.path.join(self.gameDir, fileName)
+
+            if not os.path.isfile(sourcePath):
+                raise FileNotFoundError("Required AspectJ file not found: {}".format(sourcePath))
+
+            if os.path.abspath(sourcePath) == os.path.abspath(targetPath):
+                ui.log.log("    AspectJ file already in game directory: {}".format(targetPath))
+            elif os.path.isfile(targetPath):
+                ui.log.log("    AspectJ file already exists: {}".format(targetPath))
+            else:
+                shutil.copyfile(sourcePath, targetPath)
+                ui.log.log("    Copied AspectJ file to: {}".format(targetPath))
+
+    def _load_config(self):
+        with open(self.configPath, "r", encoding="utf-8") as configFile:
+            return json.load(configFile)
+
+    def _save_config(self, jsonObj):
+        _write_json_file(self.configPath, jsonObj)
+        ui.log.log("    Updated config.json")
+
+    def _log_paths(self, action):
+        modSource = "Workshop" if "\\workshop\\content\\" in self.path.lower() or "/workshop/content/" in self.path.lower() else "local"
+        ui.log.log("  JarMod {}: {}".format(action, self.title()))
+        ui.log.log("    Mod source: {}".format(modSource))
+        ui.log.log("    Mod path: {}".format(self.path))
+        ui.log.log("    Game directory: {}".format(self.gameDir))
+        ui.log.log("    Config path: {}".format(self.configPath))
+        ui.log.log("    Mod JAR classPath entry: {}".format(self.classPathName))
+
+    def _remove_disabled_marker(self):
+        markerPath = os.path.join(self.path, DISABLED_MARKER)
+        if os.path.isfile(markerPath):
+            os.unlink(markerPath)
 
     def enable(self):
-        try:
-            os.unlink(os.path.join(self.path, DISABLED_MARKER))
-        except:
-            pass
-
-        shutil.copyfile("aspectj-1.9.19.jar", self.path + "/../../aspectj-1.9.19.jar")
-        shutil.copyfile("aspectjweaver-1.9.19.jar", self.path + "/../../aspectjweaver-1.9.19.jar")
+        self._log_paths("enable")
 
         try:
-            f = open(self.path + "/../../config.json", "r", encoding="utf-8")
-            jsonObj = json.load(f)
-            classPath = jsonObj["classPath"]
-            vmArgs = jsonObj["vmArgs"]
+            self._copy_aspectj()
 
-            # aspectj is required for .jar mods
-            if "aspectjweaver-1.9.19.jar" not in classPath:
-                classPath.insert(0, "aspectjweaver-1.9.19.jar")
-            if "aspectj-1.9.19.jar" not in classPath:
-                classPath.insert(1, "aspectj-1.9.19.jar")
+            jsonObj = self._load_config()
+            classPath = jsonObj.setdefault("classPath", [])
+            vmArgs = jsonObj.setdefault("vmArgs", [])
+            legacyClassPathName = self.path + "/" + self.jarModFileName
+            legacyEntries = {
+                legacyClassPathName,
+                normalize_classpath_entry(legacyClassPathName),
+            }
+            classPath[:] = [entry for entry in classPath if entry not in legacyEntries or entry == self.classPathName]
 
-            if self.classPathName not in classPath:
-                classPath.insert(2, self.classPathName)
+            _insert_once(classPath, ASPECTJ_WEAVER_JAR, 0)
+            _insert_once(classPath, ASPECTJ_JAR, 1)
+            _insert_once(classPath, self.classPathName, 2)
 
-            jsonObj["classPath"] = classPath
+            _insert_once(vmArgs, ASPECTJ_JAVAAGENT, 0)
+            _insert_once(vmArgs, "-XstartOnFirstThread", 0)
+            _insert_once(vmArgs, "--add-opens java.base/java.lang=ALL-UNNAMED", 0)
 
-            if "-javaagent:./aspectjweaver-1.9.19.jar" not in vmArgs:
-                vmArgs.insert(0, "-javaagent:./aspectjweaver-1.9.19.jar")
-            if "-XstartOnFirstThread" not in vmArgs:
-                vmArgs.insert(0, "-XstartOnFirstThread")
-            if "--add-opens java.base/java.lang=ALL-UNNAMED" not in vmArgs:
-                vmArgs.insert(0, "--add-opens java.base/java.lang=ALL-UNNAMED")
-
-            jsonObj["vmArgs"] = vmArgs
-
-            f.close()
-            open(self.path + "/../../config.json", "w").close()  # erase file
-            f = open(self.path + "/../../config.json", "w", encoding="utf-8")
-            f.write(json.dumps(jsonObj, indent=4))
-            print("Updated config.json")
+            self._save_config(jsonObj)
+            self._remove_disabled_marker()
 
             self.enabled = True
-        except:
-            pass
+        except Exception as ex:
+            self.enabled = False
+            ui.log.log("    Failed to enable JAR mod: {}".format(ex))
 
     def disable(self):
         with open(os.path.join(self.path, DISABLED_MARKER), "w") as marker:
             marker.write("this mod is disabled, remove this file to enable it again (or toggle it via the modloader UI)")
         self.enabled = False
 
-        f = open(self.path + "/../../config.json", "r", encoding="utf-8")
-        jsonObj = json.load(f)
-        classPath = jsonObj["classPath"]
+        self._log_paths("disable")
 
-        if self.classPathName in classPath:
-            classPath.remove(self.classPathName)
-            jsonObj["classPath"] = classPath
-            f.close()
-            open(self.path + "/../../config.json", "w").close()  # erase file
-            f = open(self.path + "/../../config.json", "w", encoding="utf-8")
-            f.write(json.dumps(jsonObj, indent=4))
-            print("Updated config.json")
+        if not os.path.isfile(self.configPath):
+            ui.log.log("    config.json does not exist; classPath cleanup skipped.")
+            return
+
+        try:
+            jsonObj = self._load_config()
+            classPath = jsonObj.get("classPath", [])
+            legacyClassPathName = self.path + "/" + self.jarModFileName
+            removeEntries = {
+                self.classPathName,
+                legacyClassPathName,
+                normalize_classpath_entry(legacyClassPathName),
+            }
+            newClassPath = [entry for entry in classPath if entry not in removeEntries]
+
+            if len(newClassPath) != len(classPath):
+                jsonObj["classPath"] = newClassPath
+                self._save_config(jsonObj)
+                ui.log.log("    Removed JAR classPath entry: {}".format(self.classPathName))
+            else:
+                ui.log.log("    JAR classPath entry was not present.")
+        except Exception as ex:
+            ui.log.log("    Failed to disable JAR mod cleanly: {}".format(ex))
 
     pass
