@@ -282,9 +282,10 @@ class Window(Frame):
         ui.log.setGameModPath(self.modPath)
         ui.log.log("Discovered game at {}".format(path))
         ui.log.log("  gamePath: {}".format(self.gamePath))
-        ui.log.log("  workshopPath: {}".format(self.workshopPath))
         ui.log.log("  modPath: {}".format(self.modPath))
         ui.log.log("  jarPath: {}".format(self.jarPath))
+        if workshop_path.exists():
+            ui.log.log("  workshopPath: {}".format(self.workshopPath))
 
         with open("previous_spacehaven_path.txt", "w") as f:
             f.write(path)
@@ -297,9 +298,12 @@ class Window(Frame):
         self.spacehavenText.insert(0, self.gamePath)
 
         self.modPath = [
-            self.modPath,
-            self.workshopPath
+            self.modPath
         ]
+
+        if workshop_path.exists():
+            self.modPath.append(self.workshopPath)
+
         try:
             with open("extra_mods_path.txt", "r") as f:
                 for mod_path in f.read().split("\n"):
