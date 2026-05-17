@@ -15,7 +15,7 @@ def launchAndWait(path):
     if sys.platform == "darwin":
         subprocess.call(["open", path, "-W"])
     else:
-        subprocess.call(path, cwd=from_dir)
+        subprocess.call([path], cwd=from_dir)
 
 
 def open(path):

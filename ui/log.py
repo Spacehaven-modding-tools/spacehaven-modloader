@@ -1,34 +1,60 @@
 import os
-import sys
 
 import version
 
 
 class Logger:
-    """Logger that writes to both a local logfile and one in the game mods/ folder"""
+    """Logger that writes to the modloader diagnostics folder once the game is located."""
 
     def __init__(self):
         self.gameLog = None
+        self.localLog = None
+        self.localPath = None
+        self.bufferedMessages = []
 
-        self.localPath = os.path.join(os.path.dirname(sys.argv[0]), "logs.txt")
-        self.localLog = open(self.localPath, "w")
-        print("Started logging to {}...".format(self.localPath))
+        print("Buffering logs until the Space Haven folder is detected...")
 
         self.logInitialInfo()
 
     def setGameModPath(self, path):
-        self.gameLog = open(os.path.join(path, "logs.txt"), "w")
+        dataDir = os.path.join(path, "modloader")
+        os.makedirs(dataDir, exist_ok=True)
+        newPath = os.path.join(dataDir, "logs.txt")
+
+        if self.localPath is None or os.path.abspath(newPath) != os.path.abspath(self.localPath):
+            try:
+                if self.localLog:
+                    self.localLog.close()
+            except Exception:
+                pass
+            self.localPath = newPath
+            self.localLog = open(self.localPath, "w")
+            for message in self.bufferedMessages:
+                self.localLog.write(message + "\n")
+            self.localLog.flush()
+            self.bufferedMessages = []
+            print("Started logging to {}...".format(self.localPath))
+
+        if self.gameLog:
+            try:
+                self.gameLog.close()
+            except Exception:
+                pass
+            self.gameLog = None
 
         self.logInitialInfo()
-        self.log("Logging to {}".format(path))
+        self.log("Logging to {}".format(self.localPath))
 
     def logInitialInfo(self):
         self.log("Space Haven Modloader v{}".format(version.version))
 
     def log(self, message=""):
         print("[LOG] {}".format(message))
-        self.localLog.write(message + "\n")
-        self.localLog.flush()
+        if self.localLog:
+            self.localLog.write(message + "\n")
+            self.localLog.flush()
+        else:
+            self.bufferedMessages.append(message)
 
         if self.gameLog:
             self.gameLog.write(message + "\n")

@@ -37,7 +37,25 @@ mods/
 
 5. When you're ready click "Launch Space Haven!" to play with mods. The mod loader will load the mods into the game, launch the game, and then unload them again when the game exits.
 
-6. Once you've played with a given set of mods, the loader will keep a quick launch file for them. The next time they will load a lot faster. If you want to develop your own mod or tweak one, you should always click on "Clear QuickLaunch file" before running the game, so your changes are taken into account. 
+6. Once you've played with a given set of mods, the loader will keep a QuickLaunch cache file for them. The next time they will load a lot faster. The cache is stored in `SpaceHaven/mods/modloader`. If you want to develop your own mod or tweak one, click **Clear QuickLaunch cache** before running the game, so your changes are taken into account.
+
+The Mod Loader also writes its diagnostics log, QuickLaunch cache, and extra mod folder state to `SpaceHaven/mods/modloader` after the game folder is detected. The last detected game path stays next to the executable so it can be read before the game folder is known.
+
+## Configuration and Load Order
+
+Mods that expose configuration variables can be edited in the selected mod's configuration panel. Large configuration lists can be scrolled and filtered with the search field.
+
+Use **Save config** to write changes to the mod's `info.xml`. The loader shows whether there are unsaved changes and warns before switching mods, disabling mods, launching, or quitting with pending changes.
+
+Use **Move up** and **Move down** to adjust load order. The selected order is saved in `modloader_load_order.json` next to `spacehaven.jar`.
+
+## Workshop JAR Mods
+
+JAR/AspectJ mods installed from Steam Workshop are loaded from their real Workshop folder. The loader writes the real Space Haven `config.json` next to `spacehaven.jar`; it does not resolve `config.json` relative to the Workshop content folder.
+
+The loader also performs a conservative cleanup of JAR classpath entries it owns. Missing or disabled JAR mods under known local/Workshop mod folders are removed from `config.json`, while unknown classpath entries outside known mod folders are left untouched.
+
+Java mods that need external assets should either bundle those assets inside their JAR and use `getResource()` / `getResourceAsStream()`, or resolve files relative to their own JAR location with Java's `getProtectionDomain().getCodeSource().getLocation()` API.
 
 ## Known issues
 

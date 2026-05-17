@@ -11,8 +11,14 @@ class GameInfo:
 
     def detectVersion(self):
         ui.log.log("Loading game information...")
-        with ZipFile(self.jarPath, "r") as spacehaven:
-            self.version = spacehaven.read("version.txt").decode("utf-8").split("\n")[0].strip()
-            # second line is "alpha 8, which is useless. Don't know where the "build 3" comes from
+        self.version = ""
+        try:
+            with ZipFile(self.jarPath, "r") as spacehaven:
+                self.version = spacehaven.read("version.txt").decode("utf-8").split("\n")[0].strip()
+                # second line is "alpha 8, which is useless. Don't know where the "build 3" comes from
+        except KeyError:
+            ui.log.log("  Could not find version.txt inside {}".format(self.jarPath))
+        except Exception as ex:
+            ui.log.log("  Could not read game version from {}: {}".format(self.jarPath, ex))
 
         ui.log.log("  Version: {}".format(self.version))
