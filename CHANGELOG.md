@@ -1,4 +1,29 @@
 # Change Log
+## v0.12.4
+- Added a scrollable, searchable mod configuration panel for mods with many options.
+- Added explicit config save feedback and warnings for unsaved config changes before switching mods, toggling mods, launching, or quitting.
+- Added basic mod load order controls and persisted load order in `modloader_load_order.json` next to `spacehaven.jar`.
+- Hardened non-Steam/GOG handling by skipping Workshop discovery when no Steam `steamapps` parent exists.
+- Fixed Steam VDF autolocation continuing into the brute-force fallback after a successful locate.
+- Kept Workshop JAR/AspectJ injection using the real game `config.json` resolved from `gameInfo.jarPath`.
+- Preserved stable JAR classPath ordering while avoiding duplicate AspectJ and mod JAR entries.
+- Added conservative JAR classPath cleanup for stale local/Workshop mod entries during mod discovery and before launch.
+- Moved QuickLaunch cache files into `SpaceHaven/mods/modloader` instead of leaving them next to the executable or inside the Workshop content folder.
+- Added a `Clear QuickLaunch cache` button that removes current cache files and legacy `quicklaunch_*.jar` files left beside the Mod Loader executable.
+- Moved the main runtime log to `SpaceHaven/mods/modloader/logs.txt` once the game path is detected.
+- Moved `extra_mods_path.txt` into `SpaceHaven/mods/modloader`, with one-shot migration from the legacy file beside the executable. `previous_spacehaven_path.txt` intentionally stays beside the executable so the saved location can be read on the next launch before the game folder is known.
+- Increased the default window size and minimum window size so the app is usable without manually maximizing it first.
+- Reduced resize lag by throttling scrollable panel geometry updates during window resizing.
+- Made state-file writes atomic (write to `.tmp`, then `os.replace`) so a crash mid-save cannot truncate user state.
+- Improved diagnostics for config saving, load order saving, game version detection, Workshop discovery, and mod disable failures.
+
+## v0.12.3
+- Fixed Workshop JAR/AspectJ mods resolving `config.json` relative to the Workshop content folder.
+- JarMod now resolves `config.json` from the detected Space Haven game directory.
+- Workshop JAR mods now inject correctly into Space Haven `config.json`.
+- Enable/disable no longer crashes for Workshop JAR mods.
+- Local `/mods` JAR mods remain supported.
+
 ## v0.12.1
 - Fix build missing annotate code
 
