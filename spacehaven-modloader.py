@@ -5,7 +5,7 @@ import platform
 import threading
 import traceback
 import vdf
-from pathlib import Path, PurePath
+from pathlib import Path
 from tkinter import *
 from tkinter import filedialog, messagebox, ttk, font, scrolledtext
 
@@ -19,6 +19,7 @@ from ui.gameinfo import GameInfo
 import ui.header
 import ui.launcher
 import ui.log
+import ui.paths
 import version
 from ui.scrolledlistbox import ScrolledListbox
 from ui.database import JarMod
@@ -46,6 +47,21 @@ POSSIBLE_SPACEHAVEN_LOCATIONS = [
 DatabaseHandler = ui.database.ModDatabase
 
 
+def _read_text_file(path):
+    with open(path, "r", encoding="utf-8") as inFile:
+        return inFile.read()
+
+
+def _write_text_file(path, value):
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    tmp_path = path + ".tmp"
+    with open(tmp_path, "w", encoding="utf-8") as outFile:
+        outFile.write(value)
+    os.replace(tmp_path, path)
+
+
 # Frame with built in scrollbar. Used for MonConfigFrame
 class ScrollableFrame(ttk.Frame):
     def __init__(self, container, *args, **kwargs):
@@ -53,12 +69,104 @@ class ScrollableFrame(ttk.Frame):
         canvas = Canvas(self)
         scrollbar = ttk.Scrollbar(self, orient="vertical", command=canvas.yview)
         self.scrollable_frame = ttk.Frame(canvas)
+        self._mousewheel_bound = False
+        self._scrollregion_after_id = None
+        self._resize_after_id = None
+        self._last_canvas_width = None
 
-        self.scrollable_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        def _update_scrollregion():
+            self._scrollregion_after_id = None
+            try:
+                if canvas.winfo_exists():
+                    canvas.configure(scrollregion=canvas.bbox("all"))
+            except TclError:
+                return
 
-        canvas.create_window((0, 30), window=self.scrollable_frame, anchor="nw")
+        def _schedule_scrollregion(_event=None):
+            if self._scrollregion_after_id:
+                try:
+                    self.after_cancel(self._scrollregion_after_id)
+                except TclError:
+                    pass
+            self._scrollregion_after_id = self.after(40, _update_scrollregion)
+
+        self.scrollable_frame.bind("<Configure>", _schedule_scrollregion)
+
+        window_id = canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
+
+        def _resize_scrollable_frame(width):
+            self._resize_after_id = None
+            if self._last_canvas_width == width:
+                return
+            self._last_canvas_width = width
+            try:
+                if canvas.winfo_exists():
+                    canvas.itemconfigure(window_id, width=width)
+            except TclError:
+                return
+
+        def _schedule_resize_scrollable_frame(event):
+            width = event.width
+            if self._resize_after_id:
+                try:
+                    self.after_cancel(self._resize_after_id)
+                except TclError:
+                    pass
+            self._resize_after_id = self.after(40, lambda: _resize_scrollable_frame(width))
+
+        canvas.bind("<Configure>", _schedule_resize_scrollable_frame)
+
+        def _on_mousewheel(event):
+            try:
+                if not canvas.winfo_exists():
+                    return "break"
+                if event.num == 4:
+                    canvas.yview_scroll(-1, "units")
+                elif event.num == 5:
+                    canvas.yview_scroll(1, "units")
+                else:
+                    canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+            except TclError:
+                return "break"
+            return "break"
+
+        def _bind_mousewheel(_event=None):
+            if self._mousewheel_bound:
+                return
+            canvas.bind_all("<MouseWheel>", _on_mousewheel, add="+")
+            canvas.bind_all("<Button-4>", _on_mousewheel, add="+")
+            canvas.bind_all("<Button-5>", _on_mousewheel, add="+")
+            self._mousewheel_bound = True
+
+        def _unbind_mousewheel(_event=None):
+            if not self._mousewheel_bound:
+                return
+            # bind_all/unbind_all clear every binding; only do it when this
+            # frame is the one currently owning the mousewheel.
+            canvas.unbind_all("<MouseWheel>")
+            canvas.unbind_all("<Button-4>")
+            canvas.unbind_all("<Button-5>")
+            self._mousewheel_bound = False
+
+        def _cancel_pending_callbacks(_event=None):
+            _unbind_mousewheel()
+            for after_id in [self._scrollregion_after_id, self._resize_after_id]:
+                if after_id:
+                    try:
+                        self.after_cancel(after_id)
+                    except TclError:
+                        pass
+            self._scrollregion_after_id = None
+            self._resize_after_id = None
+
+        canvas.bind("<Enter>", _bind_mousewheel)
+        self.scrollable_frame.bind("<Enter>", _bind_mousewheel)
+        canvas.bind("<Leave>", _unbind_mousewheel)
+        self.scrollable_frame.bind("<Leave>", _unbind_mousewheel)
+        self.bind("<Destroy>", _cancel_pending_callbacks)
 
         canvas.configure(yscrollcommand=scrollbar.set)
+        self.canvas = canvas
 
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
@@ -83,6 +191,11 @@ class Window(Frame):
         # Used later when binding events.
         # This prevents some obscure bugs.
         closure_self: Window = self
+        self._mod_list_suppress = False
+        self.current_config_mod = None
+        self.config_dirty = False
+        self.config_filter_var = StringVar()
+        self.config_status_var = StringVar(value="No unsaved changes")
 
         # separator
         # Frame(self, height=1, bg="grey").pack(fill=X, padx=4, pady=8)
@@ -106,9 +219,10 @@ class Window(Frame):
             # Handle problem of this event fireing when Listbox loses focus.
             if sel is None or len(sel) == 0:
                 return
-            # index = int(w.curselection()[0])
-            # value = w.get(index)
-            closure_self.showCurrentMod(evt)
+            if closure_self._mod_list_suppress:
+                return
+            index = int(w.curselection()[0])
+            closure_self.show_mod_at_index(index)
 
         modList.bind("<<ListboxSelect>>", evt_ModList_ListboxSelect)
         modBrowser.add(modList)
@@ -155,7 +269,7 @@ class Window(Frame):
         # launcher
         self.launchButton_default_text = "LAUNCH!"
         self.launchButton = Button(buttonFrame, text=self.launchButton_default_text, command=self.launch_wrapper, height=2, font=font.Font(size=14, weight="bold"))
-        self.launchButton.pack(fill=X, padx=4, pady=4)
+        self.launchButton.pack(side=LEFT, padx=8, pady=4)
 
         # Frame(self, height=1, bg="grey").pack(fill=X, padx=4, pady=8)
         self.spacehavenPicker = Frame(buttonFrame)
@@ -189,7 +303,13 @@ class Window(Frame):
         self.modListRefresh = Button(buttonFrame, text="Refresh Mods", command=self.refreshModList)
         self.modListRefresh.pack(side=RIGHT, expand=False, padx=8, pady=4)
 
-        self.quickLaunchClear = Button(buttonFrame, text="Clear Quicklaunch file", command=self.clear_quick_launch)
+        self.modMoveDown = Button(buttonFrame, text="Move down", command=lambda: self.move_current_mod(1))
+        self.modMoveDown.pack(side=RIGHT, expand=False, padx=8, pady=4)
+
+        self.modMoveUp = Button(buttonFrame, text="Move up", command=lambda: self.move_current_mod(-1))
+        self.modMoveUp.pack(side=RIGHT, expand=False, padx=8, pady=4)
+
+        self.quickLaunchClear = Button(buttonFrame, text="Clear QuickLaunch cache", command=self.clear_quick_launch)
         self.quickLaunchClear.pack(side=RIGHT, expand=False, padx=8, pady=4)
 
         buttonFrame.pack(fill=X, padx=4, pady=8)
@@ -202,15 +322,18 @@ class Window(Frame):
         self.jarPath = None
         self.modPath = None
 
-        # Open previous location if known
+        # Read the last known Space Haven location stored next to the executable.
+        # This file lives outside the game folder on purpose: we need to find
+        # the game before we know which game folder to look inside.
         try:
-            with open("previous_spacehaven_path.txt", "r") as f:
-                location = f.read()
-                if os.path.exists(location):
-                    self.locateSpacehaven(location)
-                    return
+            location = _read_text_file(loader.load.PREVIOUS_GAME_PATH_FILENAME)
+            if os.path.exists(location):
+                self.locateSpacehaven(location)
+                return
         except FileNotFoundError:
             ui.log.log("Unable to get last space haven location. Autolocating again.")
+        except Exception as ex:
+            ui.log.log("Unable to read previous Space Haven location: {}".format(ex))
 
         # Find steam install location automagically
         try:
@@ -237,9 +360,12 @@ class Window(Frame):
                     continue
 
                 self.locateSpacehaven(str(Path(value["path"], "steamapps", "common", "SpaceHaven", game_executable)))
+                return
 
         except FileNotFoundError:
             ui.log.log("Unable to locate Steam registry keys or library paths, aborting Steam autolocator")
+        except Exception as ex:
+            ui.log.log("Unable to use Steam autolocator: {}".format(ex))
 
         # Brute force method
         for location in POSSIBLE_SPACEHAVEN_LOCATIONS:
@@ -248,8 +374,8 @@ class Window(Frame):
                 if os.path.exists(location):
                     self.locateSpacehaven(location)
                     return
-            except:
-                pass
+            except Exception as ex:
+                ui.log.log("Unable to check possible Space Haven location {}: {}".format(location, ex))
         ui.log.log("Unable to autolocate installation. User will need to pick manually.")
 
     def locateSpacehaven(self, path):
@@ -271,10 +397,8 @@ class Window(Frame):
             self.jarPath = os.path.join(os.path.dirname(path), "spacehaven.jar")
             self.modPath = os.path.join(os.path.dirname(path), "mods")
 
-        # determine relative workshop path from gamePath
-        # we assume the workshop assets is always on the same drive as the game
-        workshop_path = Path(self.gamePath).parents[2].joinpath(PurePath("workshop/content/979110"))
-        self.workshopPath = str(workshop_path)
+        workshop_path = ui.paths.resolve_workshop_path(self.gamePath)
+        self.workshopPath = workshop_path
 
         if not os.path.exists(self.modPath):
             os.mkdir(self.modPath)
@@ -284,11 +408,12 @@ class Window(Frame):
         ui.log.log("  gamePath: {}".format(self.gamePath))
         ui.log.log("  modPath: {}".format(self.modPath))
         ui.log.log("  jarPath: {}".format(self.jarPath))
-        if workshop_path.exists():
+        if workshop_path:
             ui.log.log("  workshopPath: {}".format(self.workshopPath))
+        else:
+            ui.log.log("  workshopPath: not available")
 
-        with open("previous_spacehaven_path.txt", "w") as f:
-            f.write(path)
+        self.save_previous_spacehaven_path(path)
 
         self.checkForLoadedMods()
 
@@ -301,19 +426,61 @@ class Window(Frame):
             self.modPath
         ]
 
-        if workshop_path.exists():
+        if workshop_path:
             self.modPath.append(self.workshopPath)
 
-        try:
-            with open("extra_mods_path.txt", "r") as f:
-                for mod_path in f.read().split("\n"):
-                    if mod_path.strip():
-                        self.modPath.append(mod_path.strip())
-        except:
-            pass
+        self.load_extra_mod_paths()
 
         DatabaseHandler(self.modPath, self.gameInfo)
         self.refreshModList()
+
+    def modloader_state_file(self, filename):
+        return loader.load.modloader_state_file(self.jarPath, filename)
+
+    def save_previous_spacehaven_path(self, path):
+        # Stored next to the executable so we can read it before knowing where
+        # Space Haven lives. Moving this file into <SpaceHaven>/mods/modloader
+        # would break the bootstrap on the next launch.
+        targetPath = loader.load.PREVIOUS_GAME_PATH_FILENAME
+        try:
+            _write_text_file(targetPath, path)
+            ui.log.log("Saved previous Space Haven path to {}".format(os.path.abspath(targetPath)))
+        except Exception as ex:
+            ui.log.log("Unable to save previous Space Haven path to {}: {}".format(os.path.abspath(targetPath), ex))
+
+    def load_extra_mod_paths(self):
+        statePath = self.modloader_state_file(loader.load.EXTRA_MODS_PATH_FILENAME)
+        candidates = [statePath, loader.load.EXTRA_MODS_PATH_FILENAME]
+        seen = set()
+
+        for path in candidates:
+            if path in seen:
+                continue
+            seen.add(path)
+            try:
+                extraPaths = _read_text_file(path)
+            except FileNotFoundError:
+                continue
+            except Exception as ex:
+                ui.log.log("Unable to read extra mod paths from {}: {}".format(path, ex))
+                continue
+
+            for mod_path in extraPaths.split("\n"):
+                mod_path = mod_path.strip()
+                if mod_path:
+                    self.modPath.append(mod_path)
+
+            if path == loader.load.EXTRA_MODS_PATH_FILENAME:
+                self.migrate_extra_mod_paths(path, statePath, extraPaths)
+            break
+
+    def migrate_extra_mod_paths(self, legacyPath, statePath, extraPaths):
+        try:
+            _write_text_file(statePath, extraPaths)
+            os.unlink(legacyPath)
+            ui.log.log("Migrated extra mod paths to {}".format(statePath))
+        except Exception as ex:
+            ui.log.log("Unable to migrate extra mod paths to {}: {}".format(statePath, ex))
 
     def checkForLoadedMods(self):
         if self.jarPath is None:
@@ -327,8 +494,10 @@ class Window(Frame):
         filetypes = []
         if platform.system() == "Windows":
             filetypes.append(("spacehaven.exe", "*.exe"))
+            filetypes.append(("spacehaven.jar", "*.jar"))
         elif platform.system() == "Darwin":
             filetypes.append(("spacehaven.app", "*.app"))
+            filetypes.append(("spacehaven.jar", "*.jar"))
         elif platform.system() == "Linux":
             filetypes.append(("all files", "*"))
 
@@ -346,32 +515,80 @@ class Window(Frame):
     #    pass
 
     def refreshModList(self):
+        if not self.confirm_unsaved_config("refreshing the mod list"):
+            return
+
         try:
             # might fail at init time
             previously_selected = self.selected_mod()
         except:
             previously_selected = None
-            pass
-        self.modList.delete(0, END)
 
         if self.modPath is None:
             self.showModError("Spacehaven not found", "Please use the 'Find game' button below to locate Spacehaven.")
             return
 
         DatabaseHandler.getInstance().locateMods()
+        selected_path = previously_selected.path if previously_selected else None
+        self.renderModList(selected_path)
 
+    def renderModList(self, selected_path=None):
+        self._mod_list_suppress = True
+        self.modList.delete(0, END)
         mod_idx = 0
+        selected_idx = 0
         for mod in DatabaseHandler.getRegisteredMods():
             self.modList.insert(END, mod.title())
             mod.display_idx = mod_idx
 
             self.update_list_style(mod)
-            if previously_selected and mod == previously_selected.name:
-                self.modList.selection_set(mod_idx)
+            if selected_path and os.path.normcase(mod.path) == os.path.normcase(selected_path):
+                selected_idx = mod_idx
             mod_idx += 1
 
+        if mod_idx:
+            self.modList.selection_set(selected_idx)
+        self._mod_list_suppress = False
         self.check_quick_launch()
         self.showCurrentMod()
+
+    def show_mod_at_index(self, index):
+        mods = DatabaseHandler.getRegisteredMods()
+        if index < 0 or index >= len(mods):
+            return
+        previous_path = self.current_config_mod.path if self.current_config_mod else None
+        if not self.confirm_unsaved_config("changing the selected mod"):
+            self.restore_mod_selection(previous_path)
+            return
+        self.showMod(mods[index])
+
+    def restore_mod_selection(self, mod_path):
+        if not mod_path:
+            return
+        for index, mod in enumerate(DatabaseHandler.getRegisteredMods()):
+            if os.path.normcase(mod.path) == os.path.normcase(mod_path):
+                self._mod_list_suppress = True
+                self.modList.selection_clear(0, END)
+                self.modList.selection_set(index)
+                self._mod_list_suppress = False
+                return
+
+    def move_current_mod(self, delta):
+        mod = self.selected_mod()
+        if not mod:
+            return
+        if not self.confirm_unsaved_config("changing mod load order"):
+            return
+
+        mods = DatabaseHandler.getRegisteredMods()
+        index = mods.index(mod)
+        new_index = index + delta
+        if new_index < 0 or new_index >= len(mods):
+            return
+
+        mods[index], mods[new_index] = mods[new_index], mods[index]
+        DatabaseHandler.getInstance().save_load_order()
+        self.renderModList(mod.path)
 
     def update_list_style(self, mod):
         if mod.enabled:
@@ -397,6 +614,8 @@ class Window(Frame):
         mod = self.selected_mod()
         if not mod:
             return
+        if not self.confirm_unsaved_config("enabling or disabling a mod"):
+            return
 
         if mod.enabled:
             mod.disable()
@@ -413,26 +632,31 @@ class Window(Frame):
         self.modDetailsDescription.insert(END, description)
         self.modDetailsDescription.config(state="disabled")
 
-    def create_ModConfigVariableEntry(self, configFrame: Frame, mod: ui.database.Mod, var: ui.database.ModConfigVar):
-        # TODO: Maybe change this to use grid instead of pack for better presentation?
-        valFrame = Frame(configFrame)
-        # label for variable description
-        Label(valFrame, text=var.desc).pack(side=LEFT)
+    def create_ModConfigVariableEntry(self, configFrame: Frame, mod: ui.database.Mod, var: ui.database.ModConfigVar, row_index: int):
+        bg = "#f7f7f7" if row_index % 2 == 0 else "#ffffff"
+        valFrame = Frame(configFrame, bg=bg, highlightthickness=1, highlightbackground="#dddddd")
+        valFrame.columnconfigure(0, weight=1)
+        valFrame.columnconfigure(1, weight=0)
+
+        labelText = var.desc or var.name
+        label = Label(valFrame, text=labelText, anchor=W, justify=LEFT, bg=bg, wraplength=520)
+        label.grid(row=0, column=0, sticky=EW, padx=8, pady=6)
 
         # Entry for value
         tk_value = StringVar(valFrame, value=var.value)
 
         def _value_update(name, index, mode, mod, var, tk_value):
             var.value = tk_value.get()
+            self.mark_config_dirty()
 
         # Checkbox option
         if var.type == "toggle":
-            c1 = Checkbutton(valFrame, variable=tk_value, onvalue=var.max, offvalue=var.min)
-            c1.pack()
+            c1 = Checkbutton(valFrame, variable=tk_value, onvalue=var.max, offvalue=var.min, bg=bg)
+            c1.grid(row=0, column=1, sticky=E, padx=8, pady=6)
         # Else uses entry text
         else:
-            entryValue = Entry(valFrame, textvariable=tk_value)
-            entryValue.pack(side=RIGHT)
+            entryValue = Entry(valFrame, textvariable=tk_value, width=28)
+            entryValue.grid(row=0, column=1, sticky=E, padx=8, pady=6)
 
         tk_value.trace("w", lambda name, index, mode: _value_update(name, index, mode, mod, var, tk_value))
 
@@ -442,16 +666,82 @@ class Window(Frame):
         # label for debug information
         # Label(valFrame,text="").pack(side=RIGHT)
 
-        valFrame.pack(fill=X)
+        valFrame.pack(fill=X, padx=4, pady=1)
         return
+
+    def config_var_matches_filter(self, var, filter_text):
+        if not filter_text:
+            return True
+        haystack = " ".join([str(var.name or ""), str(var.desc or ""), str(var.value or ""), str(var.default or "")]).lower()
+        return filter_text.lower() in haystack
+
+    def render_config_variables(self, mod):
+        for child in self.modConfigListFrame.scrollable_frame.winfo_children():
+            child.destroy()
+
+        filter_text = self.config_filter_var.get().strip()
+        visible_vars = [var for var in mod.variables if self.config_var_matches_filter(var, filter_text)]
+
+        if not visible_vars:
+            Label(self.modConfigListFrame.scrollable_frame, text="No matching configuration options", anchor=W).pack(fill=X, padx=8, pady=8)
+            return
+
+        for index, var in enumerate(visible_vars):
+            self.create_ModConfigVariableEntry(self.modConfigListFrame.scrollable_frame, mod, var, index)
+
+    def mark_config_dirty(self):
+        if not self.current_config_mod:
+            return
+        self.config_dirty = True
+        self.config_status_var.set("Unsaved changes")
+
+    def set_config_clean(self, status="No unsaved changes"):
+        self.config_dirty = False
+        self.config_status_var.set(status)
+
+    def discard_current_config_changes(self):
+        mod = self.current_config_mod
+        if mod and mod.variables:
+            for var in mod.variables:
+                var.value = getattr(var, "saved_value", var.value)
+        self.set_config_clean("No unsaved changes")
+
+    def save_current_config(self):
+        mod = self.current_config_mod
+        if not mod or not mod.variables:
+            self.set_config_clean()
+            return True
+        if mod.saveConfig():
+            self.set_config_clean("Saved")
+            return True
+        self.config_status_var.set("Failed to save")
+        messagebox.showerror("Could not save config", "The selected mod configuration could not be saved. Check mods/modloader/logs.txt for details.")
+        return False
+
+    def confirm_unsaved_config(self, action):
+        if not self.config_dirty:
+            return True
+        answer = messagebox.askyesnocancel(
+            "Unsaved configuration changes",
+            "You have unsaved configuration changes. Save before {}?\n\nYes: save changes\nNo: discard unsaved changes\nCancel: stay here".format(action),
+        )
+        if answer is None:
+            return False
+        if answer:
+            return self.save_current_config()
+        self.discard_current_config_changes()
+        return True
 
     def reset_ModConfigVariables(self):
         mod = self.selected_mod()
         if not mod or not mod.variables:
             return
         for var in mod.variables:
-            var.ui_stringvar.set(var.default)
+            if hasattr(var, "ui_stringvar"):
+                var.ui_stringvar.set(var.default)
             var.value = var.default
+        self.mark_config_dirty()
+        self.render_config_variables(mod)
         self.modConfigFrame.update()
 
     def update_mod_config_ui(self, mod: ui.database.Mod):
@@ -462,23 +752,34 @@ class Window(Frame):
 
         try:
             if len(mod.variables) > 0:
-                self.modConfigFrame = ScrollableFrame(self.modDetailsWindow)
+                self.current_config_mod = mod
+                self.config_filter_var.set("")
+                self.set_config_clean()
+                self.modConfigFrame = Frame(self.modDetailsWindow)
             else:
+                self.current_config_mod = mod
+                self.set_config_clean()
                 return
         except:
             return
 
-        # Reset button at top.
-        resetFrame = Frame(self.modConfigFrame.scrollable_frame)
-        resetButton = Button(resetFrame, text="Reset to Defaults", anchor=NE, command=self.reset_ModConfigVariables)
-        resetButton.pack(side=RIGHT, padx=4, pady=4)
-        resetFrame.pack(fill=X)
+        configToolbar = Frame(self.modConfigFrame)
+        Label(configToolbar, text="Search configuration").pack(side=LEFT, padx=4, pady=4)
+        searchEntry = Entry(configToolbar, textvariable=self.config_filter_var, width=28)
+        searchEntry.pack(side=LEFT, padx=4, pady=4)
+        searchEntry.bind("<KeyRelease>", lambda _event: self.render_config_variables(mod))
 
-        for v in mod.variables:
-            self.create_ModConfigVariableEntry(self.modConfigFrame.scrollable_frame, mod, v)
+        Button(configToolbar, text="Save config", command=self.save_current_config).pack(side=RIGHT, padx=4, pady=4)
+        Button(configToolbar, text="Reset to Defaults", command=self.reset_ModConfigVariables).pack(side=RIGHT, padx=4, pady=4)
+        Label(configToolbar, textvariable=self.config_status_var, anchor=E).pack(side=RIGHT, padx=8, pady=4)
+        configToolbar.pack(fill=X)
+
+        self.modConfigListFrame = ScrollableFrame(self.modConfigFrame)
+        self.modConfigListFrame.pack(fill=BOTH, expand=True)
+        self.render_config_variables(mod)
 
         self.modConfigFrame.update()
-        self.modDetailsWindow.add(self.modConfigFrame, minsize=self.modConfigFrame.winfo_reqheight())
+        self.modDetailsWindow.add(self.modConfigFrame, minsize=180)
         self.modDetailsWindow.update()
 
     def showMod(self, mod: ui.database.Mod):
@@ -511,6 +812,8 @@ class Window(Frame):
         self.quickLaunchClear.config(state=state)
         self.modListRefresh.config(state=state)
         self.modListOpenFolder.config(state=state)
+        self.modMoveUp.config(state=state)
+        self.modMoveDown.config(state=state)
         self.extractButton.config(state=state)
         self.annotateButton.config(state=state)
         self.quitButton.config(state=state)
@@ -606,28 +909,46 @@ class Window(Frame):
 
     def quick_launch_available(self):
         mods_sig = self.current_mods_signature()
-        return os.path.isfile(loader.load.quick_launch_filename(mods_sig))
+        return os.path.isfile(loader.load.quick_launch_filename(mods_sig, self.jarPath))
 
     def check_quick_launch(self):
+        has_cache = self.jarPath and loader.load.has_quick_launch_cache(self.jarPath)
         if not self.mods_enabled():
             self.launchButton_default_text = "LAUNCH ORIGINAL GAME"
-            self.quickLaunchClear.config(state=DISABLED)
         elif self.quick_launch_available():
             self.launchButton_default_text = "QUICKLAUNCH!"
-            self.quickLaunchClear.config(state=NORMAL)
         else:
             self.launchButton_default_text = "LAUNCH!"
-            self.quickLaunchClear.config(state=DISABLED)
+        self.quickLaunchClear.config(state=NORMAL if has_cache else DISABLED)
         self.launchButton.config(text=self.launchButton_default_text)
 
     def clear_quick_launch(self):
-        try:
-            os.unlink(loader.load.quick_launch_filename(self.current_mods_signature()))
-        except:
-            pass
+        if not self.jarPath:
+            return
+        if not messagebox.askyesno("Clear QuickLaunch cache", "Delete all cached QuickLaunch files for this Mod Loader install?"):
+            return
+        removed = loader.load.clear_quick_launch_cache(self.jarPath)
+        ui.log.log("Cleared {} QuickLaunch cache file(s).".format(removed))
         self.check_quick_launch()
 
     def launch_wrapper(self):
+        if self.config_dirty:
+            answer = messagebox.askyesnocancel(
+                "Unsaved configuration changes",
+                "You have unsaved configuration changes. Save before launching?\n\nYes: save and launch\nNo: launch without saving\nCancel: stay here",
+            )
+            if answer is None:
+                return
+            if answer and not self.save_current_config():
+                return
+            if answer is False:
+                self.launch_without_saving_config = True
+
+        try:
+            DatabaseHandler.getInstance().reconcile_jarmod_classpath()
+        except Exception as ex:
+            ui.log.log("Failed to run JAR classPath cleanup before launch: {}".format(ex))
+
         if not self.mods_enabled():
             task = self.launch_vanilla
             message = "Launching original game"
@@ -670,11 +991,14 @@ class Window(Frame):
             else:
                 xmlMods.append(mod)
 
-        # If any active mods have variables, save them.
-        for mod in activeMods:
-            if mod.variables:
-                # mod.info_xml.write(mod.info_file)
-                mod.saveConfig()
+        if getattr(self, "launch_without_saving_config", False):
+            ui.log.log("Skipping config autosave because user chose to launch without saving.")
+            self.launch_without_saving_config = False
+        else:
+            # If any active mods have variables, save them.
+            for mod in activeMods:
+                if mod.variables:
+                    mod.saveConfig()
 
         try:
             loader.load.load(self.jarPath, xmlMods, self.current_mods_signature())
@@ -687,6 +1011,8 @@ class Window(Frame):
             messagebox.showerror("Error loading mods", traceback.format_exc(3))
 
     def quit(self):
+        if not self.confirm_unsaved_config("quitting"):
+            return
         if self.can_quit:
             self.master.destroy()
             return
@@ -700,17 +1026,26 @@ def handleException(type, value, trace):
     ui.log.log("!! Exception !!")
     ui.log.log(message)
 
-    messagebox.showerror("Error", "Sorry, something went wrong!\n\n" "Please open an issue at https://github.com/CyanBlob/spacehaven-modloader and attach logs.txt from your mods/ folder.")
+    messagebox.showerror("Error", "Sorry, something went wrong!\n\n" "Please open an issue at https://github.com/Spacehaven-modding-tools/spacehaven-modloader and attach logs.txt from your mods/modloader/ folder.")
 
 
 if __name__ == "__main__":
     root = Tk()
-    root.geometry("890x669")
+
+    # Pick a default window size that fits the user's screen. SteamDeck is
+    # 1280x800 native, so cap height at 720 and width at 1280, while staying
+    # within ~85% of the available screen.
+    screen_w = root.winfo_screenwidth()
+    screen_h = root.winfo_screenheight()
+    win_w = max(800, min(1280, int(screen_w * 0.85)))
+    win_h = max(600, min(720, int(screen_h * 0.85)))
+    root.geometry("{}x{}".format(win_w, win_h))
+    root.minsize(800, 600)
     root.report_callback_exception = handleException
 
     # HACK: Button labels don't appear until the window is resized with py2app
     def fixNoButtonLabelsBug():
-        root.geometry("890x670")
+        root.geometry("{}x{}".format(win_w, win_h + 1))
 
     root.resizable(True, True)
 

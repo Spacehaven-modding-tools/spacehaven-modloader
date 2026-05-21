@@ -11,6 +11,7 @@ from ui.database import (
     DISABLED_MARKER,
     JarMod,
     normalize_classpath_entry,
+    reconcile_jarmod_classpath,
     resolve_config_path,
 )
 
@@ -110,6 +111,25 @@ class JarModPathTests(unittest.TestCase):
             self.assertEqual(config["classPath"].count(entry), 1)
         self.assertEqual(config["vmArgs"].count(ASPECTJ_JAVAAGENT), 1)
 
+    def test_enable_keeps_existing_jar_order_before_spacehaven(self):
+        modPath = os.path.join(self.gameDir, "mods", TEST_MOD_NAME)
+        infoPath = write_mod_files(modPath)
+        mod = JarMod(infoPath, self.gameInfo, TEST_MOD_JAR)
+        otherJar = normalize_classpath_entry(os.path.join(self.gameDir, "mods", "OtherMod", "OtherMod.jar"))
+        with open(self.configPath, "w", encoding="utf-8") as configFile:
+            json.dump({"classPath": ["spacehaven.jar"], "vmArgs": []}, configFile)
+
+        config = load_config(self.configPath)
+        config["classPath"].insert(0, otherJar)
+        with open(self.configPath, "w", encoding="utf-8") as configFile:
+            json.dump(config, configFile)
+
+        mod.enable()
+        config = load_config(self.configPath)
+
+        self.assertLess(config["classPath"].index(otherJar), config["classPath"].index(mod.classPathName))
+        self.assertLess(config["classPath"].index(mod.classPathName), config["classPath"].index("spacehaven.jar"))
+
     def test_disable_removes_only_this_mod_jar(self):
         modPath = os.path.join(self.gameDir, "mods", TEST_MOD_NAME)
         infoPath = write_mod_files(modPath)
@@ -159,6 +179,62 @@ class JarModPathTests(unittest.TestCase):
         mod.disable()
 
         self.assertTrue(os.path.isfile(os.path.join(modPath, DISABLED_MARKER)))
+
+    def test_reconcile_removes_stale_managed_jars_and_keeps_unknown_entries(self):
+        modsRoot = os.path.join(self.gameDir, "mods")
+        workshopRoot = os.path.join(self.root, "Steam", "steamapps", "workshop", "content", "979110")
+        activePath = os.path.join(modsRoot, TEST_MOD_NAME)
+        disabledPath = os.path.join(modsRoot, "DisabledJarMod")
+        staleLocalJar = normalize_classpath_entry(os.path.join(modsRoot, "MissingJarMod", "MissingJarMod.jar"))
+        staleWorkshopJar = normalize_classpath_entry(os.path.join(workshopRoot, "9999999999", "OldWorkshop.jar"))
+        unknownJar = normalize_classpath_entry(os.path.join(self.root, "External", "ManualJar.jar"))
+        disabledJar = normalize_classpath_entry(os.path.join(disabledPath, "DisabledJarMod.jar"))
+
+        activeInfoPath = write_mod_files(activePath)
+        activeMod = JarMod(activeInfoPath, self.gameInfo, TEST_MOD_JAR)
+
+        disabledInfoPath = write_mod_files(disabledPath)
+        disabledMod = JarMod(disabledInfoPath, self.gameInfo, "DisabledJarMod.jar")
+        with open(os.path.join(disabledPath, "DisabledJarMod.jar"), "w", encoding="utf-8") as jarFile:
+            jarFile.write("")
+        with open(os.path.join(disabledPath, DISABLED_MARKER), "w", encoding="utf-8") as marker:
+            marker.write("disabled")
+        disabledMod.enabled = False
+
+        os.makedirs(os.path.dirname(staleWorkshopJar.replace("/", os.sep)), exist_ok=True)
+        os.makedirs(os.path.dirname(unknownJar.replace("/", os.sep)), exist_ok=True)
+        with open(unknownJar.replace("/", os.sep), "w", encoding="utf-8") as jarFile:
+            jarFile.write("")
+
+        with open(self.configPath, "w", encoding="utf-8") as configFile:
+            json.dump(
+                {
+                    "classPath": [
+                        "aspectjweaver-1.9.19.jar",
+                        "aspectjweaver-1.9.19.jar",
+                        "aspectj-1.9.19.jar",
+                        activeMod.classPathName,
+                        disabledJar,
+                        staleLocalJar,
+                        staleWorkshopJar,
+                        unknownJar,
+                        "spacehaven.jar",
+                    ],
+                    "vmArgs": [],
+                },
+                configFile,
+            )
+
+        changed = reconcile_jarmod_classpath(self.gameInfo, [activeMod, disabledMod], [modsRoot, workshopRoot])
+        config = load_config(self.configPath)
+
+        self.assertTrue(changed)
+        self.assertIn(activeMod.classPathName, config["classPath"])
+        self.assertIn(unknownJar, config["classPath"])
+        self.assertNotIn(disabledJar, config["classPath"])
+        self.assertNotIn(staleLocalJar, config["classPath"])
+        self.assertNotIn(staleWorkshopJar, config["classPath"])
+        self.assertEqual(config["classPath"].count("aspectjweaver-1.9.19.jar"), 1)
 
 
 if __name__ == "__main__":
