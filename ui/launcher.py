@@ -27,6 +27,10 @@ def open(path):
     if sys.platform == "win32":
         os.startfile(path)
     elif sys.platform == "darwin":
-        subprocess.call(["open", path])
+        # Can't use `open path` when path is inside a .app bundle — macOS
+        # resolves up to the .app and launches the game instead of the folder.
+        # AppleScript's `reveal` navigates inside bundles correctly.
+        subprocess.call(["osascript", "-e", f'tell application "Finder" to reveal POSIX file "{path}"'])
+        subprocess.call(["osascript", "-e", 'tell application "Finder" to activate'])
     else:
         subprocess.call(["xdg-open", path])

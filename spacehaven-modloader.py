@@ -350,6 +350,7 @@ class Window(Frame):
                 steam_path = Path(Path.home(), ".steam", "steam")
             if platform.system() == "Darwin":
                 steam_path = Path(Path.home(), "Library", "Application Support", "Steam")
+                game_executable += ".app"
 
             libraryfolders_vdf = vdf.parse(open(str(Path(steam_path, "steamapps", "libraryfolders.vdf"))))["libraryfolders"]
             for key in libraryfolders_vdf:

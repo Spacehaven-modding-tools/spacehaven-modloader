@@ -259,13 +259,13 @@ def annotate(corePath):
         languages = fragment.find("languages")
         if languages is not None:
             for lang in languages.findall("l"):
-                lang = lang.get("lang")
+                lang_code = lang.get("lang")
                 f = lang.find("file")
                 if f is not None:
                     fid = f.get("fid")
-                    if fid is not None and gfilename[fid] is not None:
+                    if fid is not None and gfilename.get(fid) is not None:
                         lang.set("_annotation", gfilename[fid])
-                        if lang == "EN":
+                        if lang_code == "EN":
                             fragment.set("_annotation", gfilename[fid])
 
     annotatedHavenPath = os.path.join(corePath, "library", "haven_annotated.xml")
