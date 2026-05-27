@@ -48,6 +48,10 @@ jobs:
       - name: Build cx_Freeze files
         run:  uv run cxfreeze build
 
+      - name: Sign files on MacOS
+        if: matrix.settings.target == 'macos'
+        run: codesign --force --deep --sign - build/*
+
       - name: Upload zip artifact
         uses: actions/upload-artifact@v6
         with:
