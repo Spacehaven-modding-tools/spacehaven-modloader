@@ -652,7 +652,8 @@ class JarMod(Mod):
             _insert_before_spacehaven(classPath, self.classPathName)
 
             _insert_once(vmArgs, ASPECTJ_JAVAAGENT, 0)
-            _insert_once(vmArgs, "-XstartOnFirstThread", 0)
+            if sys.platform == "Darwin":
+                _insert_once(vmArgs, "-XstartOnFirstThread", 0)
             _insert_once(vmArgs, "--add-opens java.base/java.lang=ALL-UNNAMED", 0)
 
             self._save_config(jsonObj)
