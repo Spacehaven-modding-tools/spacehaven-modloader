@@ -22,7 +22,6 @@ import ui.log
 import ui.paths
 import version
 from ui.scrolledlistbox import ScrolledListbox
-from ui.database import JarMod
 
 POSSIBLE_SPACEHAVEN_LOCATIONS = [
     # MacOS
@@ -978,19 +977,13 @@ class Window(Frame):
             messagebox.showerror("Error during quick launch", traceback.format_exc(3))
 
     def patchAndLaunch(self):
-        # activeModPaths = [mod.path for mod in DatabaseHandler.getActiveMods()]
-
         activeMods = DatabaseHandler.getActiveMods()
-        xmlMods = []
 
-        print(activeMods)
-        print(type(activeMods))
-
-        for mod in activeMods:
-            if isinstance(mod, JarMod):
-                continue
-            else:
-                xmlMods.append(mod)
+        # JAR mods are injected into the game through config.json's classPath
+        # (handled in JarMod.enable() during mod discovery), but they can ALSO
+        # ship traditional XML modifications under library/ and patches/ just
+        # like any XML mod. Pass every active mod through the XML pipeline so
+        # those modifications are merged in too.
 
         if getattr(self, "launch_without_saving_config", False):
             ui.log.log("Skipping config autosave because user chose to launch without saving.")
@@ -1002,7 +995,7 @@ class Window(Frame):
                     mod.saveConfig()
 
         try:
-            loader.load.load(self.jarPath, xmlMods, self.current_mods_signature())
+            loader.load.load(self.jarPath, activeMods, self.current_mods_signature())
             ui.launcher.launchAndWait(self.gamePath)
             loader.load.unload(self.jarPath)
         except:
