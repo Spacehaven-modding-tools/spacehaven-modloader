@@ -11,6 +11,8 @@ import version
 import ui.log
 import shutil
 
+from ui.gameinfo import GameInfo
+
 ASPECTJ_VERSION = "1.9.19"
 ASPECTJ_JAR = "aspectj-{}.jar".format(ASPECTJ_VERSION)
 ASPECTJ_WEAVER_JAR = "aspectjweaver-{}.jar".format(ASPECTJ_VERSION)
@@ -419,7 +421,7 @@ class Mod:
         self.website = ""
         self.updates = ""
         self.prefix = ""
-        self.gameInfo = gameInfo
+        self.gameInfo: GameInfo = gameInfo
         self._mappedIDs = []
         self.enabled = not os.path.isfile(os.path.join(self.path, DISABLED_MARKER))
         self.variables = []
@@ -653,8 +655,11 @@ class JarMod(Mod):
 
             _insert_once(vmArgs, ASPECTJ_JAVAAGENT, 0)
             if sys.platform == "Darwin":
+                # This is required for macOS to properly start the JVM but is unrecognized for all other platforms
                 _insert_once(vmArgs, "-XstartOnFirstThread", 0)
-            _insert_once(vmArgs, "--add-opens java.base/java.lang=ALL-UNNAMED", 0)
+            if self.gameInfo.jvm_has_module_system():
+                # This is an unrecognized option for older JVMs
+                _insert_once(vmArgs, "--add-opens java.base/java.lang=ALL-UNNAMED", 0)
 
             self._save_config(jsonObj)
             self._remove_disabled_marker()
