@@ -1,4 +1,11 @@
 # Change Log
+## v0.12.5
+- Steam autolocator saves wrong path — game_executable never gets .app appended on Darwin (Windows gets .exe, Mac gets nothing). Saved path fails os.path.exists() so user has to browse manually every launch.
+- Annotate XML crash — variable shadowing bug in annotate.py. lang gets overwritten with a string, then .find("file") returns an int (Python string method), then .get() on the int raises AttributeError: 'int' object has no attribute 'get'.
+- Extract Assets / Annotate XML launch the game instead of opening the folder — subprocess.call(["open", path]) on macOS, when path is inside a .app bundle, resolves up to the app and launches it. Fixed with AppleScript reveal which navigates inside bundles correctly.
+- Process XML modifications bundled in JAR mods
+- Fix vmargs being supplied incorrectly on some platforms
+
 ## v0.12.4
 - Added a scrollable, searchable mod configuration panel for mods with many options.
 - Added explicit config save feedback and warnings for unsaved config changes before switching mods, toggling mods, launching, or quitting.
