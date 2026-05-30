@@ -22,3 +22,9 @@ class GameInfo:
             ui.log.log("  Could not read game version from {}: {}".format(self.jarPath, ex))
 
         ui.log.log("  Version: {}".format(self.version))
+
+    @staticmethod
+    def jvm_has_module_system() -> bool:
+        # JVM shipped with the game does not have the Java module system
+        # TODO handle alternative JVM usage that may have the module system
+        return False
