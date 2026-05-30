@@ -2,7 +2,7 @@ import json
 import os
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 
 from ui.database import (
     ASPECTJ_JAR,
@@ -14,17 +14,11 @@ from ui.database import (
     reconcile_jarmod_classpath,
     resolve_config_path,
 )
-
+from ui.gameinfo import GameInfo
 
 TEST_MOD_NAME = "TestJarMod"
 TEST_MOD_JAR = "{}.jar".format(TEST_MOD_NAME)
 TEST_WORKSHOP_ITEM_ID = "1234567890"
-
-
-class FakeGameInfo:
-    def __init__(self, jarPath):
-        self.jarPath = jarPath
-        self.version = "1.0.0"
 
 
 def write_mod_files(modPath):
@@ -62,7 +56,9 @@ class JarModPathTests(unittest.TestCase):
         self.root = self.tempDir.name
         self.gameDir = os.path.join(self.root, "Steam", "steamapps", "common", "SpaceHaven")
         self.jarPath = os.path.join(self.gameDir, "spacehaven.jar")
-        self.gameInfo = FakeGameInfo(self.jarPath)
+        self.gameInfo = Mock(GameInfo)
+        self.gameInfo.jarPath = self.jarPath
+        self.gameInfo.version = "1.0.0"
         self.configPath = write_config(self.gameDir)
 
     def tearDown(self):
