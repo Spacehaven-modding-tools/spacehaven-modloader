@@ -10,7 +10,6 @@
 - autopack to as few 2k x 2k atlases as possible ([#2](../../issues/2))
 
 # Repository
-- Create a powershell build script for Windows
 - Remove need for textures_annotations.xml?
 - Update README.md
   - At least update the modloader image
