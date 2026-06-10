@@ -854,7 +854,10 @@ class Window(Frame):
             finally:
                 self.background_finished = True
 
-        self.background_thread = threading.Thread(target=_wrapper)
+        # daemon=True so the interpreter can still exit if the GUI goes away
+        # while a task (e.g. waiting on the launched game) is blocked; without
+        # it the loader lingers as a headless process (issue #74).
+        self.background_thread = threading.Thread(target=_wrapper, daemon=True)
         self.background_thread.start()
         self.after(self.background_refresh_delay, self.update_background_state)
 
@@ -1048,6 +1051,12 @@ if __name__ == "__main__":
     root.update_idletasks()
     root.after(0, fixNoButtonLabelsBug)
     root.protocol("WM_DELETE_WINDOW", app.quit)
+    if platform.system() == "Darwin":
+        # Cmd+Q is delivered through Tk's tk::mac::Quit handler, not
+        # WM_DELETE_WINDOW. Without this, Tk's default handler terminates the
+        # process immediately: quit() never runs, the game jar is left patched,
+        # and the launch thread is abandoned (issue #74).
+        root.createcommand("tk::mac::Quit", app.quit)
     icon = None
     try:
         icon = PhotoImage(file="spacehaven-modloader.png")
