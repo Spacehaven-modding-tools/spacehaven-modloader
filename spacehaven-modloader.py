@@ -862,6 +862,12 @@ class Window(Frame):
         self.after(self.background_refresh_delay, self.update_background_state)
 
     def update_background_state(self):
+        # A previously scheduled tick can still fire after the window has
+        # been destroyed (e.g. quit() ran while this callback was pending),
+        # leaving launchButton's underlying Tk widget gone.
+        if not self.winfo_exists():
+            return
+
         extra_label = "." * (self.background_counter % 5)
         self.background_counter += 1
 
@@ -1023,7 +1029,12 @@ def handleException(type, value, trace):
     ui.log.log("!! Exception !!")
     ui.log.log(message)
 
-    messagebox.showerror("Error", "Sorry, something went wrong!\n\n" "Please open an issue at https://github.com/Spacehaven-modding-tools/spacehaven-modloader and attach logs.txt from your mods/modloader/ folder.")
+    try:
+        messagebox.showerror("Error", "Sorry, something went wrong!\n\n" "Please open an issue at https://github.com/Spacehaven-modding-tools/spacehaven-modloader and attach logs.txt from your mods/modloader/ folder.")
+    except TclError:
+        # The window may already be gone (e.g. the error happened in a
+        # callback scheduled before quitting); nothing more we can do.
+        pass
 
 
 if __name__ == "__main__":
