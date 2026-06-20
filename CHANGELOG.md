@@ -1,4 +1,7 @@
 # Change Log
+## v0.12.6
+- Rework GitHub Actions build for mod loader. Makes it easier to build the mod loader for different operating systems.
+
 ## v0.12.5
 - Steam autolocator saves wrong path — game_executable never gets .app appended on Darwin (Windows gets .exe, Mac gets nothing). Saved path fails os.path.exists() so user has to browse manually every launch.
 - Annotate XML crash — variable shadowing bug in annotate.py. lang gets overwritten with a string, then .find("file") returns an int (Python string method), then .get() on the int raises AttributeError: 'int' object has no attribute 'get'.
