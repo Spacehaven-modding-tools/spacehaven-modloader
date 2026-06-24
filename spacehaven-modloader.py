@@ -854,11 +854,20 @@ class Window(Frame):
             finally:
                 self.background_finished = True
 
-        self.background_thread = threading.Thread(target=_wrapper)
+        # daemon=True so the interpreter can still exit if the GUI goes away
+        # while a task (e.g. waiting on the launched game) is blocked; without
+        # it the loader lingers as a headless process (issue #74).
+        self.background_thread = threading.Thread(target=_wrapper, daemon=True)
         self.background_thread.start()
         self.after(self.background_refresh_delay, self.update_background_state)
 
     def update_background_state(self):
+        # A previously scheduled tick can still fire after the window has
+        # been destroyed (e.g. quit() ran while this callback was pending),
+        # leaving launchButton's underlying Tk widget gone.
+        if not self.winfo_exists():
+            return
+
         extra_label = "." * (self.background_counter % 5)
         self.background_counter += 1
 
@@ -1020,7 +1029,12 @@ def handleException(type, value, trace):
     ui.log.log("!! Exception !!")
     ui.log.log(message)
 
-    messagebox.showerror("Error", "Sorry, something went wrong!\n\n" "Please open an issue at https://github.com/Spacehaven-modding-tools/spacehaven-modloader and attach logs.txt from your mods/modloader/ folder.")
+    try:
+        messagebox.showerror("Error", "Sorry, something went wrong!\n\n" "Please open an issue at https://github.com/Spacehaven-modding-tools/spacehaven-modloader and attach logs.txt from your mods/modloader/ folder.")
+    except TclError:
+        # The window may already be gone (e.g. the error happened in a
+        # callback scheduled before quitting); nothing more we can do.
+        pass
 
 
 if __name__ == "__main__":
@@ -1048,6 +1062,12 @@ if __name__ == "__main__":
     root.update_idletasks()
     root.after(0, fixNoButtonLabelsBug)
     root.protocol("WM_DELETE_WINDOW", app.quit)
+    if platform.system() == "Darwin":
+        # Cmd+Q is delivered through Tk's tk::mac::Quit handler, not
+        # WM_DELETE_WINDOW. Without this, Tk's default handler terminates the
+        # process immediately: quit() never runs, the game jar is left patched,
+        # and the launch thread is abandoned (issue #74).
+        root.createcommand("tk::mac::Quit", app.quit)
     icon = None
     try:
         icon = PhotoImage(file="spacehaven-modloader.png")
