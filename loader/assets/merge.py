@@ -122,75 +122,213 @@ def _detect_textures(coreLibrary, modLibrary, mod):
             asset.set("a", new_id)
 
     if len(needs_autogeneration):
-        # image_count = len(needs_autogeneration)
-
         regionsNode = textures_mod.find(".//regions")
         texturesNode = textures_mod.find(".//textures")
 
         textureID: int = ui.database.ModDatabase.getMod(mod).prefix
 
-        # Catch missing Modder ID.  Still try to process and move forward.
         if not textureID or textureID <= 0:
-            ui.log.log("ERROR: info.xml is missing <modid>.  Mod Author should set this to their Discord ID for all mods they make.")
+            ui.log.log(
+                "ERROR: info.xml is missing <modid>. "
+                "Mod Author should set this to their Discord ID for all mods they make."
+            )
             textureID = 9999
 
-        packer = rectpack.newPacker(rotation=False)
-
-        # Sprite sheets MUST be 2048 x 2048
         standard_dimension: int = 2048
         str_dimension: str = str(standard_dimension)
-        packer.add_bin(standard_dimension, standard_dimension)
 
-        # First get all the files and them to the packer pack them into a new texture square
-        for regionName in needs_autogeneration:
-            (w, h, rows, info) = png.Reader(textures_path + "/" + regionName).asRGBA()
+        packer = rectpack.newPacker(rotation=False)
+        packer.add_bin(
+            standard_dimension,
+            standard_dimension,
+            count=float("inf"),
+        )
+
+        for regionName in sorted(needs_autogeneration):
+            texture_path = os.path.join(textures_path, regionName)
+            (w, h, rows, info) = png.Reader(texture_path).asRGBA()
+
+            if w > standard_dimension or h > standard_dimension:
+                raise Exception(
+                    f"Texture '{regionName}' in mod "
+                    f"'{os.path.basename(mod)}' is {w}x{h}, "
+                    f"which is larger than the supported "
+                    f"{standard_dimension}x{standard_dimension} sprite sheet."
+                )
+
             packer.add_rect(w, h, regionName)
 
-        # Pack files and check that we packed everything
         packer.pack()
-        rectangles_packed: int = sum(len(packer_bin) for packer_bin in packer)
+
+        rectangles_packed: int = sum(
+            len(packer_bin) for packer_bin in packer
+        )
+
         if rectangles_packed < len(needs_autogeneration):
-            # TODO handle case when we can't pack all the textures into one bin instead of raising an Exception
-            raise Exception(
-                f"Mod '{os.path.basename(mod)}' exceeds available sprite sheet space. Contact Mod Author." " Mod Authors should spread the sprites into multiple mods to work around this limitation."
+            packed_names = {
+                rect[-1] for rect in packer.rect_list()
+            }
+
+            unpacked = sorted(
+                set(needs_autogeneration) - packed_names
             )
 
-        newTex = lxml.etree.SubElement(texturesNode, "t")
-        newTex.set("i", str(textureID))
-        newTex.set("w", str_dimension)
-        newTex.set("h", str_dimension)
-        coreLibrary["_custom_textures_cim"][str(textureID)] = newTex.attrib
+            raise Exception(
+                f"Mod '{os.path.basename(mod)}' could not pack all sprites "
+                f"into {standard_dimension}x{standard_dimension} texture pages. "
+                f"Unpacked sprites: {', '.join(unpacked)}"
+            )
 
-        # prepare to export packed PNG to mod directory.
+        bin_count = len(packer)
+
+        ui.log.log(
+            f"    Packed {rectangles_packed} texture(s) into "
+            f"{bin_count} sprite sheet(s)."
+        )
+
+        used_texture_ids = set()
+
+        for texture_node in coreLibrary["library/textures"].xpath("//t[@i]"):
+            try:
+                used_texture_ids.add(
+                    int(texture_node.get("i"))
+                )
+            except (TypeError, ValueError):
+                pass
+
+        for cim_id in coreLibrary["_custom_textures_cim"].keys():
+            try:
+                used_texture_ids.add(int(cim_id))
+            except (TypeError, ValueError):
+                pass
+
+        for prefix in ui.database.ModDatabase.Prefixes.keys():
+            try:
+                prefix = int(prefix)
+
+                if prefix > 0:
+                    used_texture_ids.add(prefix)
+
+            except (TypeError, ValueError):
+                pass
+
+        page_ids = {
+            0: textureID,
+        }
+
+        used_texture_ids.add(textureID)
+
+        if used_texture_ids:
+            next_texture_id = max(used_texture_ids) + 1
+        else:
+            next_texture_id = textureID + 1
+
+        # Allocate IDs for every additional 2048x2048 page.
+        for bin_index in range(1, bin_count):
+            while next_texture_id in used_texture_ids:
+                next_texture_id += 1
+
+            page_ids[bin_index] = next_texture_id
+            used_texture_ids.add(next_texture_id)
+
+            next_texture_id += 1
+
         kwargs = {
             "create": True,
             "width": standard_dimension,
             "height": standard_dimension,
         }
-        export_path = os.path.join(mod, f"custom_texture_{textureID}.png")
-        custom_png: Texture = Texture(export_path, **kwargs)
+
+        custom_pngs = {}
+        export_paths = {}
+
+        for bin_index in range(bin_count):
+            page_id = page_ids[bin_index]
+
+            newTex = lxml.etree.SubElement(
+                texturesNode,
+                "t",
+            )
+
+            newTex.set("i", str(page_id))
+            newTex.set("w", str_dimension)
+            newTex.set("h", str_dimension)
+
+            coreLibrary["_custom_textures_cim"][
+                str(page_id)
+            ] = newTex.attrib
+
+            export_path = os.path.join(
+                mod,
+                f"custom_texture_{page_id}.png",
+            )
+
+            export_paths[bin_index] = export_path
+
+            custom_pngs[bin_index] = Texture(
+                export_path,
+                **kwargs,
+            )
 
         packedRectsSorted = {}
+
         for rect in packer.rect_list():
-            b, x, y, w, h, rid = rect
+            bin_index, x, y, w, h, rid = rect
+
+            page_id = page_ids[bin_index]
             remappedID = mapping_n_region[rid]
-            packedRectsSorted[remappedID] = (str(x), str(y), str(w), str(h), str(rid))
-            custom_png.pack_png(os.path.join(textures_path, rid), x, y, w, h)
 
-        # write back the cim file as png for debugging
-        # this only includes textures from this mod, not the final generated cim.
-        custom_png.export_png(export_path)
+            packedRectsSorted[remappedID] = (
+                str(page_id),
+                str(x),
+                str(y),
+                str(w),
+                str(h),
+                str(rid),
+            )
 
-        # NOT YET SORTED
-        packedRectsSorted = {k: v for k, v in sorted(packedRectsSorted.items())}
-        # NOW SORTED: We need this to make sure the IDs are added to the textures file in the correct order
+            custom_pngs[bin_index].pack_png(
+                os.path.join(
+                    textures_path,
+                    rid,
+                ),
+                x,
+                y,
+                w,
+                h,
+            )
+
+        for bin_index, custom_png in custom_pngs.items():
+            custom_png.export_png(
+                export_paths[bin_index]
+            )
+
+        packedRectsSorted = {
+            k: v
+            for k, v in sorted(
+                packedRectsSorted.items()
+            )
+        }
 
         for remappedID, data in packedRectsSorted.items():
-            x, y, w, h, regionFileName = data
-            # remapData = modded_textures[remappedID]
-            newNode = lxml.etree.SubElement(regionsNode, "re")
+            (
+                page_id,
+                x,
+                y,
+                w,
+                h,
+                regionFileName,
+            ) = data
+
+            newNode = lxml.etree.SubElement(
+                regionsNode,
+                "re",
+            )
+
             newNode.set("n", remappedID)
-            newNode.set("t", str(textureID))
+
+            newNode.set("t", page_id)
+
             newNode.set("x", x)
             newNode.set("y", y)
             newNode.set("w", w)
