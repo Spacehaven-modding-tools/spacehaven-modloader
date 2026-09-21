@@ -133,7 +133,8 @@ def _detect_textures(coreLibrary, modLibrary, mod):
                 "Mod Author should set this to their Discord ID for all mods they make."
             )
             textureID = 9999
-
+            
+        # Sprite sheets MUST be 2048 x 2048
         standard_dimension: int = 2048
         str_dimension: str = str(standard_dimension)
 
@@ -158,6 +159,7 @@ def _detect_textures(coreLibrary, modLibrary, mod):
 
             packer.add_rect(w, h, regionName)
 
+        # Pack files and check that we packed everything
         packer.pack()
 
         rectangles_packed: int = sum(
@@ -232,7 +234,8 @@ def _detect_textures(coreLibrary, modLibrary, mod):
             used_texture_ids.add(next_texture_id)
 
             next_texture_id += 1
-
+        
+        # prepare to export packed PNG to mod directory.
         kwargs = {
             "create": True,
             "width": standard_dimension,
@@ -277,7 +280,8 @@ def _detect_textures(coreLibrary, modLibrary, mod):
 
             page_id = page_ids[bin_index]
             remappedID = mapping_n_region[rid]
-
+           
+            # NOT YET SORTED
             packedRectsSorted[remappedID] = (
                 str(page_id),
                 str(x),
@@ -286,7 +290,8 @@ def _detect_textures(coreLibrary, modLibrary, mod):
                 str(h),
                 str(rid),
             )
-
+            # NOW SORTED: We need this to make sure the IDs are added to the textures file in the correct order
+            
             custom_pngs[bin_index].pack_png(
                 os.path.join(
                     textures_path,
