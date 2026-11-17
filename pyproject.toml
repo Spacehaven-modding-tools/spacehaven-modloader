@@ -1,19 +1,18 @@
 [project]
 name = "spacehaven-modloader"
-version = "0.12.7"
+version = "0.12.8"
 description = "Space Haven Mod Loader"
 readme = "README.md"
 requires-python = ">=3.11.9"
 dependencies = [
-    "cx-freeze==8.6.4",
-    "lxml==5.4.0",
+    "cx-freeze==8.7.4",
+    "lxml==6.1.3",
     "pyinstaller==6.14.2",
     "pyinstaller-hooks-contrib==2025.8",
     "pypng==0.0.20",
     "rectpack==0.2.1",
-    "setuptools==80.4.0",
+    "setuptools==84.2.1",
     "vdf==3.4",
-    "zipfile39==0.0.8.0",
 ]
 
 [dependency-groups]
@@ -38,13 +37,14 @@ executables = [
 
 [tool.cxfreeze.build_exe]
 build_exe = "build/spacehaven-modloader"
-packages = ["lxml", "png", "rectpack", "zipfile39"]
+packages = ["lxml", "png", "rectpack"]
 includes = ["vdf"]
 include_files = [
     "spacehaven-modloader.png",
     "textures_annotations.xml",
     "aspectj-1.9.19.jar",
     "aspectjweaver-1.9.19.jar",
+    ["tools/date_text_fix/shl-locale-datefix.jar", "shl-locale-datefix.jar"],
     ["spacehaven_modloader.egg-info", "lib/spacehaven_modloader.egg-info"]
 ]
 

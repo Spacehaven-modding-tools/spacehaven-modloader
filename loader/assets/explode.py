@@ -1,5 +1,4 @@
 import hashlib
-import io
 import os
 import struct
 import zlib
@@ -13,22 +12,7 @@ from loader.assets.utils import create_xml_parser
 PIXEL_SIZE = 4
 RGBA_FORMAT = 4
 HEADER_SIZE = 12
-
-"""
-alt code for png
-        if 0:
-            from PIL import Image
-            reader = Image.open(path)
-            print(reader.format, reader.size, reader.mode)
-            width, height = reader.size
-            img_data = reader.getdata()
-            for row_idx in range(height):
-                start = (x + ((row_idx + y) * width)) * PIXEL_SIZE + HEADER_SIZE
-                end = start + (width * PIXEL_SIZE)
-                # FIXME might be tricky to get the image in the correct format ...
-        else:
-"""
-
+MAX_CIM_DIMENSION = 8192
 
 class Texture:
     def __init__(self, path, create=False, width=None, height=None):
@@ -40,6 +24,7 @@ class Texture:
     def _init_cim(self, width, height):
         self.width = int(width)
         self.height = int(height)
+        self._pixel_bytes()
 
         self.header = bytearray(HEADER_SIZE)
         struct.pack_into(">i", self.header, 0, self.width)
@@ -48,44 +33,45 @@ class Texture:
 
         self.data = bytearray(self.width * self.height * PIXEL_SIZE)
 
+    def _pixel_bytes(self):
+        if not (0 < self.width <= MAX_CIM_DIMENSION and 0 < self.height <= MAX_CIM_DIMENSION):
+            raise ValueError(f"Unsupported CIM dimensions: {self.width}x{self.height}")
+        return self.width * self.height * PIXEL_SIZE
+
     def _import_cim(self, path):
-        data = io.BytesIO(zlib.decompress(open(path, "rb").read()))
-        md5 = hashlib.md5(data.getbuffer()).hexdigest()
-        ui.log.log("  %s vanilla md5 %s %d bytes" % (os.path.split(path)[1], md5, data.getbuffer().nbytes))
-
-        self.header = data.read(HEADER_SIZE)
-        self.width = struct.unpack_from(">i", self.header)[0]
-        self.height = struct.unpack_from(">i", self.header, offset=4)[0]
-        self.format = struct.unpack_from(">i", self.header, offset=8)[0]
-
-        if self.format == RGBA_FORMAT:
+        inflate = zlib.decompressobj()
+        with open(path, "rb") as source:
+            chunk = source.read(65536)
+            self.header = inflate.decompress(chunk, HEADER_SIZE)
+            if len(self.header) != HEADER_SIZE:
+                raise ValueError(f"Missing CIM header: {path}")
+            self.width, self.height, self.format = struct.unpack(">iii", self.header)
+            if self.format != RGBA_FORMAT:
+                raise ValueError(f"Unsupported CIM format {self.format}: {path}")
             self.mode = "RGBA"
-        else:
-            ui.log.log("ERROR: Unknown CIM format: {}".format(self.format))
-            return
-
-        self.data = bytearray(data.read())
-        expected_size = self.width * self.height * PIXEL_SIZE
-        if len(self.data) != expected_size:
-            ui.log.log("ERROR: Wrong size %s: %d vs %d" % (path, len(self.data), expected_size))
+            expected = self._pixel_bytes()
+            self.data = bytearray()
+            chunk = inflate.unconsumed_tail or source.read(65536)
+            while chunk and not inflate.eof:
+                self.data.extend(inflate.decompress(chunk, expected - len(self.data) + 1))
+                if len(self.data) > expected:
+                    raise ValueError(f"CIM pixels exceed declared size: {path}")
+                chunk = inflate.unconsumed_tail or source.read(65536)
+            if not inflate.eof or len(self.data) != expected:
+                raise ValueError(f"CIM pixel data is incomplete: {path}")
 
     def pack_png(self, path, x=0, y=0, w=0, h=0):
-        reader = png.Reader(filename=path)
-        (width, height, rows, info) = reader.asRGBA()
-        if w and w != width:
-            ui.log.log("ERROR: Wrong width in %s: %d vs %d" % (path, width, w))
-            return
-        if h and h != height:
-            ui.log.log("ERROR: Wrong width in %s: %d vs %d" % (path, height, h))
-            return
+        with open(path, "rb") as source:
+            width, height, rows, _ = png.Reader(file=source).asRGBA8()
+            if (w and w != width) or (h and h != height):
+                raise ValueError(f"Texture {path} is {width}x{height}, expected {w}x{h}")
+            if x < 0 or y < 0 or x + width > self.width or y + height > self.height:
+                raise ValueError(f"Texture {path} exceeds CIM page bounds")
 
-        row_idx = 0
-        for row in rows:
-            start = (x + ((row_idx + y) * self.width)) * PIXEL_SIZE
-            end = start + (width * PIXEL_SIZE)
-
-            self.data[start:end] = row
-            row_idx += 1
+            for row_idx, row in enumerate(rows):
+                start = (x + ((row_idx + y) * self.width)) * PIXEL_SIZE
+                end = start + (width * PIXEL_SIZE)
+                self.data[start:end] = row
         ui.log.log("  Repacked {}...".format(os.path.split(path)[1]))
 
     def export_cim(self, path):
@@ -100,6 +86,8 @@ class Texture:
             width = self.width
         if height is None:
             height = self.height
+        if not (x >= 0 and y >= 0 and width > 0 and height > 0 and x + width <= self.width and y + height <= self.height):
+            raise ValueError(f"Texture export {path} exceeds CIM page bounds")
 
         rows = []
         for row in range(height):
@@ -125,14 +113,14 @@ def explode(corePath):
     ui.log.log("  Exploding textures at {}...".format(corePath))
 
     for region in regions:
-        name = region.get("n")
+        name = str(int(region.get("n")))
 
         x = int(region.get("x"))
         y = int(region.get("y"))
         w = int(region.get("w"))
         h = int(region.get("h"))
 
-        page = region.get("t")
+        page = str(int(region.get("t")))
 
         if page not in cims:
             cim_filename = "{}.cim".format(page)

@@ -5,11 +5,12 @@ import os
 import sys
 from xml.etree import ElementTree
 import json
+import tempfile
+from pathlib import Path
 from packaging.version import Version
 
 import version
 import ui.log
-import shutil
 
 from ui.gameinfo import GameInfo
 
@@ -33,138 +34,15 @@ def normalize_classpath_entry(path):
     return os.path.normpath(os.path.abspath(path)).replace("\\", "/")
 
 
-def _classpath_entry_to_path(entry, game_dir):
-    if not entry:
-        return ""
-    native_entry = entry.replace("/", os.sep)
-    if not os.path.isabs(native_entry):
-        native_entry = os.path.join(game_dir, native_entry)
-    return os.path.normcase(os.path.normpath(os.path.abspath(native_entry)))
-
-
-def _is_path_under(path, roots):
-    for root in roots:
-        try:
-            if os.path.commonpath([path, root]) == root:
-                return True
-        except ValueError:
-            continue
-    return False
-
-
-def _dedupe_preserving_order(values):
-    seen = set()
-    result = []
-    for value in values:
-        if value in seen:
-            ui.log.log("    Removed duplicate classPath entry: {}".format(value))
-            continue
-        seen.add(value)
-        result.append(value)
-    return result
-
-
-def reconcile_jarmod_classpath(gameInfo, jarMods, modRoots):
-    configPath = resolve_config_path(gameInfo)
-    if not os.path.isfile(configPath):
-        ui.log.log("Skipping JAR classPath cleanup because config.json does not exist: {}".format(configPath))
-        return False
-
-    gameDir = resolve_game_dir(gameInfo)
-    managedRoots = []
-    for root in modRoots:
-        if root and os.path.isdir(root):
-            managedRoots.append(os.path.normcase(os.path.normpath(os.path.abspath(root))))
-
-    if not managedRoots:
-        ui.log.log("Skipping JAR classPath cleanup because no mod roots are available.")
-        return False
-
-    activeJarMods = [mod for mod in jarMods if isinstance(mod, JarMod) and mod.enabled]
-    expectedEntries = [mod.classPathName for mod in activeJarMods]
-    expectedEntrySet = set(expectedEntries)
-    expectedPathSet = {_classpath_entry_to_path(entry, gameDir) for entry in expectedEntries}
-
-    try:
-        with open(configPath, "r", encoding="utf-8") as configFile:
-            jsonObj = json.load(configFile)
-    except Exception as ex:
-        ui.log.log("Failed to read config.json for JAR classPath cleanup: {}".format(ex))
-        return False
-
-    classPath = jsonObj.get("classPath", [])
-    if not isinstance(classPath, list):
-        ui.log.log("Skipping JAR classPath cleanup because classPath is not a list.")
-        return False
-
-    keepAlways = {ASPECTJ_WEAVER_JAR, ASPECTJ_JAR, "spacehaven.jar"}
-    newClassPath = []
-    changed = False
-
-    for entry in classPath:
-        if entry in keepAlways:
-            newClassPath.append(entry)
-            continue
-
-        entryPath = _classpath_entry_to_path(entry, gameDir)
-        isJar = entry.lower().endswith(".jar")
-        isManagedJar = isJar and _is_path_under(entryPath, managedRoots)
-
-        if not isManagedJar:
-            newClassPath.append(entry)
-            continue
-
-        if entry in expectedEntrySet or entryPath in expectedPathSet:
-            newClassPath.append(entry)
-            continue
-
-        changed = True
-        if os.path.isfile(entryPath):
-            ui.log.log("    Removed disabled or inactive JAR classPath entry: {}".format(entry))
-        else:
-            ui.log.log("    Removed stale missing JAR classPath entry: {}".format(entry))
-
-    dedupedClassPath = _dedupe_preserving_order(newClassPath)
-    if len(dedupedClassPath) != len(newClassPath):
-        changed = True
-    newClassPath = dedupedClassPath
-
-    for entry in [ASPECTJ_WEAVER_JAR, ASPECTJ_JAR]:
-        if activeJarMods and entry not in newClassPath:
-            newClassPath.insert(0 if entry == ASPECTJ_WEAVER_JAR else min(1, len(newClassPath)), entry)
-            changed = True
-            ui.log.log("    Restored required AspectJ classPath entry: {}".format(entry))
-
-    for entry in expectedEntries:
-        if entry not in newClassPath:
-            _insert_before_spacehaven(newClassPath, entry)
-            changed = True
-            ui.log.log("    Restored enabled JAR classPath entry: {}".format(entry))
-
-    if not changed:
-        ui.log.log("JAR classPath cleanup: no stale entries found.")
-        return False
-
-    jsonObj["classPath"] = newClassPath
-    try:
-        _write_json_file(configPath, jsonObj)
-        ui.log.log("JAR classPath cleanup updated config.json")
-        return True
-    except Exception as ex:
-        ui.log.log("Failed to write config.json during JAR classPath cleanup: {}".format(ex))
-        return False
-
-
 def _resource_path(file_name):
     if getattr(sys, "frozen", False):
         base_dir = os.path.dirname(sys.executable)
     else:
-        base_dir = os.getcwd()
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
     candidates = [
         os.path.join(base_dir, file_name),
         os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), file_name),
-        os.path.abspath(file_name),
     ]
 
     for candidate in candidates:
@@ -174,31 +52,12 @@ def _resource_path(file_name):
     return candidates[0]
 
 
-def _insert_once(values, value, index):
-    if value not in values:
-        values.insert(min(index, len(values)), value)
-
-
-def _move_once_to_front(values, ordered_entries):
-    remaining = [value for value in values if value not in ordered_entries]
-    return list(ordered_entries) + remaining
-
-
-def _insert_before_spacehaven(values, value):
-    if value in values:
-        return
-    try:
-        index = values.index("spacehaven.jar")
-        values.insert(index, value)
-    except ValueError:
-        values.append(value)
-
-
 def _write_json_file(path, jsonObj):
-    tmp_path = path + ".tmp"
-    with open(tmp_path, "w", encoding="utf-8") as outFile:
-        json.dump(jsonObj, outFile, indent=4)
-    os.replace(tmp_path, path)
+    with tempfile.TemporaryDirectory(dir=os.path.dirname(os.path.abspath(path))) as scratch:
+        stage = os.path.join(scratch, "state.json")
+        with open(stage, "w", encoding="utf-8") as outFile:
+            json.dump(jsonObj, outFile, indent=4)
+        os.replace(stage, path)
 
 
 class ModDatabase:
@@ -212,63 +71,82 @@ class ModDatabase:
         self.path_list = path_list
         self.gameInfo = gameInfo
         self.mods = []
+        self.discovery = []
         self.load_order_path = os.path.join(resolve_game_dir(gameInfo), "modloader_load_order.json")
         ModDatabase.__lastInstance = self
 
     def locateMods(self):
-
         self.mods = []
+        self.discovery = []
         ModDatabase.Prefixes = {}
 
-        ui.log.log("Locating mods...")
-        for path in self.path_list:
-            if not os.path.isdir(path):
-                ui.log.log("  Skipping missing mod path: {}".format(path))
-                continue
-            for modFolder in os.listdir(path):
-                if "spacehaven" in modFolder:
-                    continue  # don't need to load core game definitions
-                modPath = os.path.join(path, modFolder)
-                if os.path.isfile(modPath):
-                    # TODO add support for zip files ? unzip them on the fly ?
-                    # continue  # don't load logs, prefs, etc
-                    pass
+        def report(message):
+            self.discovery.append(message)
+            ui.log.log(message)
 
-                # TODO Pass the mod path to Mod() instead of the info_file and let it handle
-                # the info file check. It already does this! Let it do its job!
+        ui.log.log("Locating mods...")
+        seen_mods = set()
+        for path in self.path_list:
+            report(f"Mod folder: {path}")
+            try:
+                folders = sorted(os.listdir(path), key=str.casefold)
+                root = Path(path).resolve()
+            except (OSError, RuntimeError) as error:
+                report(f"  Could not scan folder: {error}")
+                continue
+
+            found = len(self.mods)
+            for modFolder in folders:
+                modPath = os.path.join(path, modFolder)
+                if not os.path.isdir(modPath):
+                    continue
+                if modFolder.lower().startswith("spacehaven_"):
+                    report(f"  Skipped {modFolder}: reserved prefix for extracted game assets.")
+                    continue
+                resolved = os.path.normcase(os.path.realpath(modPath))
+                if not Path(resolved).is_relative_to(root):
+                    report(f"  Skipped {modFolder}: directory resolves outside the mod folder.")
+                    continue
+
                 info_file = os.path.join(modPath, "info")
                 if not os.path.isfile(info_file):
                     info_file += ".xml"
                 if not os.path.isfile(info_file):
-                    # no info file, don't create a mod.
+                    report(f"  Skipped {modFolder}: no info or info.xml in the item folder.")
+                    continue
+                if resolved in seen_mods:
+                    report(f"  Skipped {modFolder}: already found in an earlier scan.")
+                    continue
+                try:
+                    files = os.listdir(modPath)
+                except OSError as error:
+                    report(f"  Skipped {modFolder}: could not read the item folder ({error}).")
                     continue
 
-                isJarMod = False
-                jarModFileName = ""
-                # jarModDisabled = False
-                for file in os.listdir(modPath):
-                    if file.endswith(".jar"):
-                        isJarMod = True
-                        jarModFileName = file
-
-                if isJarMod:
-                    newMod = JarMod(info_file, self.gameInfo, jarModFileName)
+                seen_mods.add(resolved)
+                jars = sorted(
+                    (file for file in files if file.lower().endswith(".jar")
+                     and os.path.isfile(os.path.join(modPath, file))
+                     and not file.lower().startswith(("aspectj-", "aspectjweaver-", "aspectjrt-", "aspectjtools-"))),
+                    key=str.casefold,
+                )
+                if jars:
+                    newMod = JarMod(info_file, self.gameInfo, jars[0])
+                    newMod.jarPaths = [os.path.join(modPath, jar) for jar in jars]
                 else:
                     newMod = Mod(info_file, self.gameInfo)
+                if newMod.info_xml is None:
+                    report(f"  {modFolder} is disabled because its metadata could not be read. See the game log for details.")
                 if newMod.prefix:
                     if newMod.prefix in ModDatabase.Prefixes and ModDatabase.Prefixes[newMod.prefix]:
                         ui.log.log(f"  Warning: Mod prefix {newMod.prefix} for mod {newMod.title()} is already in use.")
                     else:
                         ModDatabase.Prefixes[newMod.prefix] = newMod.enabled
                 self.mods.append(newMod)
+            report(f"  Mods found: {len(self.mods) - found}")
 
         self.apply_load_order()
-
-        for mod in self.mods:
-            if isinstance(mod, JarMod) and mod.enabled:
-                mod.enable()  # this has to be called in order to update config.json
-
-        self.reconcile_jarmod_classpath()
+        ui.log.log(f"Discovery complete: {len(self.mods)} mod(s), {sum(mod.enabled for mod in self.mods)} enabled.")
 
     def isEmpty(self) -> bool:
         return not len(self.mods)
@@ -278,9 +156,9 @@ class ModDatabase:
             with open(self.load_order_path, "r", encoding="utf-8") as orderFile:
                 data = json.load(orderFile)
                 if isinstance(data, dict):
-                    return data.get("modPaths", [])
+                    data = data.get("modPaths", [])
                 if isinstance(data, list):
-                    return data
+                    return [path for path in data if isinstance(path, str)]
         except FileNotFoundError:
             return []
         except Exception as ex:
@@ -313,9 +191,6 @@ class ModDatabase:
             return (1, mod.name.lower())
 
         self.mods.sort(key=sort_key)
-
-    def reconcile_jarmod_classpath(self):
-        return reconcile_jarmod_classpath(self.gameInfo, self.mods, self.path_list)
 
     @classmethod
     def getActiveMods(cls) -> list[Mod]:
@@ -426,8 +301,10 @@ class Mod:
         self.enabled = not os.path.isfile(os.path.join(self.path, DISABLED_MARKER))
         self.variables = []
         self.info_file = info_file
-        self.loadInfo(info_file)
+        self.info_xml = None
+        self.config_xml = None
         self.known_issues = ""
+        self.loadInfo(info_file)
 
     def loadInfo(self, infoFile):
 
@@ -435,24 +312,19 @@ class Mod:
             ui.log.log("    No info file present")
             self.name += " [!]"
             self.description = "Error loading mod: no info file present. Please create one."
+            self.enabled = False
             return
 
-        def _sanitize(elt):
-            return elt.text.strip("\r\n\t ")
-
         def _optional(tag):
-            try:
-                return _sanitize(mod.find(tag))
-            except:
-                return ""
+            return (mod.findtext(tag) or "").strip()
 
         try:
             info = ElementTree.parse(infoFile)
             mod = info.getroot()
 
             self.info_xml = info
-            self.name = _sanitize(mod.find("name"))
-            self.description = _sanitize(mod.find("description"))
+            self.name = _optional("name") or self.name
+            self.description = _optional("description")
 
             self.known_issues = _optional("knownIssues")
             self.version = _optional("version")
@@ -476,9 +348,11 @@ class Mod:
             self.verifyLoaderVersion(mod)
             self.verifyGameVersion(mod, self.gameInfo)
 
-        except (AttributeError, ElementTree.ParseError) as ex:
+        except (AttributeError, OSError, ValueError, ElementTree.ParseError) as ex:
             self.name += " [!]"
             self.description = "Error loading mod: error parsing info file."
+            self.info_xml = self.config_xml = None
+            self.enabled = False
             ui.log.log("    Failed to parse info file {}: {}".format(infoFile, ex))
 
         ui.log.log("    Finished loading {}".format(self.name))
@@ -487,14 +361,17 @@ class Mod:
         if self.config_xml:
             all_var = self.config_xml.findall("var")
             if all_var and len(all_var) > 0:
-                for var in self.variables:
-                    v = self.config_xml.findall("./var[@name='" + var.name + "']")
-                    if v:
-                        v[0].set("value", str(var.value))
+                values = {var.name: var.value for var in self.variables}
+                for var_xml in all_var:
+                    if (name := var_xml.get("name")) in values:
+                        var_xml.set("value", str(values[name]))
 
             # config_xml is a section of info_xml
             try:
-                self.info_xml.write(self.info_file, encoding="unicode")
+                with tempfile.TemporaryDirectory(dir=self.path) as scratch:
+                    stage = os.path.join(scratch, "info.xml")
+                    self.info_xml.write(stage, encoding="utf-8")
+                    os.replace(stage, self.info_file)
                 for var in self.variables:
                     var.saved_value = var.value
                 ui.log.log("    Saved config for {}".format(self.title()))
@@ -505,6 +382,9 @@ class Mod:
         return True
 
     def enable(self):
+        if self.info_xml is None:
+            ui.log.log(f"    Cannot enable {self.title()}: fix its info.xml first.")
+            return
         try:
             os.unlink(os.path.join(self.path, DISABLED_MARKER))
             self.enabled = True
@@ -554,7 +434,9 @@ class Mod:
         return str(id)
 
     def verifyLoaderVersion(self, mod):
-        self.minimumLoaderVersion = mod.find("minimumLoaderVersion").text
+        self.minimumLoaderVersion = mod.findtext("minimumLoaderVersion", "").strip()
+        if not self.minimumLoaderVersion:
+            return
         if Version(self.minimumLoaderVersion) > Version(version.version):
             self.warn("Mod loader version {} is required".format(self.minimumLoaderVersion))
 
@@ -593,115 +475,7 @@ class JarMod(Mod):
         super().__init__(info_file, gameInfo)
         self.jarModFileName = jarModFileName
         self.jarPath = os.path.join(self.path, jarModFileName)
+        self.jarPaths = [self.jarPath]
         self.classPathName = normalize_classpath_entry(self.jarPath)
         self.gameDir = resolve_game_dir(gameInfo)
         self.configPath = resolve_config_path(gameInfo)
-
-    def _copy_aspectj(self):
-        for fileName in [ASPECTJ_JAR, ASPECTJ_WEAVER_JAR]:
-            sourcePath = _resource_path(fileName)
-            targetPath = os.path.join(self.gameDir, fileName)
-
-            if not os.path.isfile(sourcePath):
-                raise FileNotFoundError("Required AspectJ file not found: {}".format(sourcePath))
-
-            if os.path.abspath(sourcePath) == os.path.abspath(targetPath):
-                ui.log.log("    AspectJ file already in game directory: {}".format(targetPath))
-            elif os.path.isfile(targetPath):
-                ui.log.log("    AspectJ file already exists: {}".format(targetPath))
-            else:
-                shutil.copyfile(sourcePath, targetPath)
-                ui.log.log("    Copied AspectJ file to: {}".format(targetPath))
-
-    def _load_config(self):
-        with open(self.configPath, "r", encoding="utf-8") as configFile:
-            return json.load(configFile)
-
-    def _save_config(self, jsonObj):
-        _write_json_file(self.configPath, jsonObj)
-        ui.log.log("    Updated config.json")
-
-    def _log_paths(self, action):
-        modSource = "Workshop" if "\\workshop\\content\\" in self.path.lower() or "/workshop/content/" in self.path.lower() else "local"
-        ui.log.log("  JarMod {}: {}".format(action, self.title()))
-        ui.log.log("    Mod source: {}".format(modSource))
-        ui.log.log("    Mod path: {}".format(self.path))
-        ui.log.log("    Game directory: {}".format(self.gameDir))
-        ui.log.log("    Config path: {}".format(self.configPath))
-        ui.log.log("    Mod JAR classPath entry: {}".format(self.classPathName))
-
-    def _remove_disabled_marker(self):
-        markerPath = os.path.join(self.path, DISABLED_MARKER)
-        if os.path.isfile(markerPath):
-            os.unlink(markerPath)
-
-    def enable(self):
-        self._log_paths("enable")
-
-        try:
-            self._copy_aspectj()
-
-            jsonObj = self._load_config()
-            classPath = jsonObj.setdefault("classPath", [])
-            vmArgs = jsonObj.setdefault("vmArgs", [])
-            legacyClassPathName = self.path + "/" + self.jarModFileName
-            legacyEntries = {
-                legacyClassPathName,
-                normalize_classpath_entry(legacyClassPathName),
-            }
-            classPath[:] = [entry for entry in classPath if entry not in legacyEntries and entry not in [ASPECTJ_WEAVER_JAR, ASPECTJ_JAR]]
-            classPath[:] = _move_once_to_front(classPath, [ASPECTJ_WEAVER_JAR, ASPECTJ_JAR])
-            _insert_before_spacehaven(classPath, self.classPathName)
-
-            _insert_once(vmArgs, ASPECTJ_JAVAAGENT, 0)
-            if sys.platform == "Darwin":
-                # This is required for macOS to properly start the JVM but is unrecognized for all other platforms
-                _insert_once(vmArgs, "-XstartOnFirstThread", 0)
-            if self.gameInfo.jvm_has_module_system():
-                # This is an unrecognized option for older JVMs
-                _insert_once(vmArgs, "--add-opens java.base/java.lang=ALL-UNNAMED", 0)
-
-            self._save_config(jsonObj)
-            self._remove_disabled_marker()
-
-            self.enabled = True
-        except Exception as ex:
-            self.enabled = False
-            ui.log.log("    Failed to enable JAR mod: {}".format(ex))
-
-    def disable(self):
-        self.enabled = False
-
-        self._log_paths("disable")
-
-        try:
-            with open(os.path.join(self.path, DISABLED_MARKER), "w") as marker:
-                marker.write("this mod is disabled, remove this file to enable it again (or toggle it via the modloader UI)")
-        except Exception as ex:
-            ui.log.log("    Failed to write disabled marker: {}".format(ex))
-
-        if not os.path.isfile(self.configPath):
-            ui.log.log("    config.json does not exist; classPath cleanup skipped.")
-            return
-
-        try:
-            jsonObj = self._load_config()
-            classPath = jsonObj.get("classPath", [])
-            legacyClassPathName = self.path + "/" + self.jarModFileName
-            removeEntries = {
-                self.classPathName,
-                legacyClassPathName,
-                normalize_classpath_entry(legacyClassPathName),
-            }
-            newClassPath = [entry for entry in classPath if entry not in removeEntries]
-
-            if len(newClassPath) != len(classPath):
-                jsonObj["classPath"] = newClassPath
-                self._save_config(jsonObj)
-                ui.log.log("    Removed JAR classPath entry: {}".format(self.classPathName))
-            else:
-                ui.log.log("    JAR classPath entry was not present.")
-        except Exception as ex:
-            ui.log.log("    Failed to disable JAR mod cleanly: {}".format(ex))
-
-    pass

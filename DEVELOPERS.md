@@ -1,64 +1,35 @@
-# Developers Setup
+# Development
 
-## Purpose
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and run these commands from the repository root. The repository pins Python through `.python-version`.
 
-This document explains how to set up a development environment for this project to run the program from the source and
-to facilitate development.
-
-
-## Prerequisites
-
-- git — to clone the repository
-- uv — Python package and project manager
-
-
-## Install uv
-`uv` is a project and package manager for Python.
-If you don't have uv installed, follow the official instructions for your platform at
-https://docs.astral.sh/uv/getting-started/installation/
-
-
-## Cloning the repository
-
-`git clone` the repository into your Projects folder.
-
-For the remainder of this document, we'll assume the working directory is the root of the repository.
-
-
-## Installing pyenv
-
-If you don't have pyenv installed, follow the official instructions for your platform at https://github.com/pyenv/pyenv.
-
-pyenv is a tool that lets you switch between multiple versions of Python.
-
-
-## Installing Python
-
-This repository contains a `.python-version` file pinning Python to a specific version.
-`uv` should automaatically install the declared version.
-
-Alternatively, you can manually install python with the uv command:
-```shell
-uv python install 3.11.9
+```powershell
+uv sync --locked
+uv run --locked python spacehaven-modloader.py
 ```
 
+## Tests
 
-## Set up Virtual Environment
-
-`uv` will create a virtual environment to isolate the project's dependencies from your system Python installation.
-
-Install Python dependencies:
-```shell
-uv sync --frozen
+```powershell
+uv run --locked ruff check loader ui tests generate_nsis_filelist.py spacehaven-modloader.py tools
+uv run --locked python -m unittest discover -s tests -v
 ```
 
+The Windows CI runs the DateFix tests on Temurin 25 and 27. To run them locally, put `javac` on PATH and set `SHL_TEST_JAVA25`, `SHL_TEST_JAVA27`, and `SHL_TEST_WEAVER` to the two verified Java executables and the AspectJ 1.9.27 JAR. Without those paths, the corresponding tests are skipped.
 
-## Running the loader
+## Build
 
-Run the loader with the command:
+```powershell
+uv run --locked python tools/build_frozen.py
 ```
-uv run python spacehaven-modloader.py
-```
 
-It is possible to avoid activating the virtual environment for future invocations by running the loader with the path
-to the Python interpreter in the virtual environment, e.g. `venv/bin/python` command.
+The frozen build goes to `build/spacehaven-modloader`. On Windows, create `dist/`, run `uv run --locked python generate_nsis_filelist.py`, then run `makensis installer.nsi` to build the installer.
+
+## Rebuild DateFix
+
+Put a JDK with `javac --release 8` support on PATH. Run `uv run --locked python tools/date_text_fix/build_patch.py` to check that the build matches the pinned JAR. After changing the aspect or its descriptors, use `--update-hash` and run the weaving tests on both JVMs.
+
+## Test a Release Build
+
+Use an isolated copy of Space Haven 1.0.4. Launch once with the bundled Java runtime and no mods. Then launch with Temurin 25 or 27, open **Load Game**, and check the timestamp before the AM/PM marker. Repeat with an XML mod and a JAR mod. Report the loader version, game build, selected runtime, mods, and steps to reproduce.
+
+Check an exported diagnostics ZIP for local paths or account identifiers before sharing it.

@@ -14,8 +14,7 @@ runs:
     - name: Prepare dist folder
       shell: powershell
       run: |
-        if (Test-Path dist) { Remove-Item dist\* -Force }
-        else { New-Item dist -ItemType Directory }
+        New-Item dist -ItemType Directory -Force | Out-Null
 
     - name: Generate NSIS file list and installer script
       shell: powershell
