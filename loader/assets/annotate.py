@@ -1,7 +1,8 @@
 import os
-from xml.etree import ElementTree
+from lxml import etree
 
 import ui.log
+from ui.database import _resource_path
 
 from loader.assets.utils import create_xml_parser
 
@@ -9,15 +10,14 @@ from loader.assets.utils import create_xml_parser
 def annotate(corePath):
     """Generate an annotated Space Haven library"""
 
-    # NOTE: textures and animations do not seem to get annotated.  Should this be replaced?  WP would like to use these to make additional annotations in `haven`.
     texture_names = {}
-    local_texture_names = ElementTree.parse("textures_annotations.xml", parser=create_xml_parser())
+    local_texture_names = etree.parse(_resource_path("textures_annotations.xml"), parser=create_xml_parser())
     for region in local_texture_names.findall(".//re[@n]"):
         if not region.get("_annotation"):
             continue
         texture_names[region.get("n")] = region.get("_annotation")
 
-    animations = ElementTree.parse(os.path.join(corePath, "library", "animations"), parser=create_xml_parser())
+    animations = etree.parse(os.path.join(corePath, "library", "animations"), parser=create_xml_parser())
     for assetPos in animations.findall(".//assetPos[@a]"):
         asset_id = assetPos.get("a")
         if asset_id not in texture_names:
@@ -28,13 +28,13 @@ def annotate(corePath):
     animations.write(annotatedPath)
     ui.log.log("  Wrote annotated annimations to {}".format(annotatedPath))
 
-    haven = ElementTree.parse(os.path.join(corePath, "library", "haven"), parser=create_xml_parser())
-    texts = ElementTree.parse(os.path.join(corePath, "library", "texts"), parser=create_xml_parser())
+    haven = etree.parse(os.path.join(corePath, "library", "haven"), parser=create_xml_parser())
+    texts = etree.parse(os.path.join(corePath, "library", "texts"), parser=create_xml_parser(recover=True))
 
     tids = {}
     # Load texts
     for text in texts.getroot():
-        tids[text.get("id")] = text.find("EN").text
+        tids[text.get("id")] = text.findtext("EN", "")
 
     def nameOf(element):
         name = element.find("name")
@@ -45,7 +45,7 @@ def annotate(corePath):
         if tid is None:
             return ""
 
-        return tids[tid]
+        return tids.get(tid, "")
 
     ##############################################################################################
     # Recurse EVERY element in the entire haven file, trying to find the name and set the
@@ -75,10 +75,6 @@ def annotate(corePath):
         if name:
             e.set("_annotation", name)
 
-    # Write the partially annotated haven file, in case something goes wrong later.
-    annotatedHavenPath = os.path.join(corePath, "library", "haven_annotated.xml")
-    haven.write(annotatedHavenPath)
-
     ##############################################################################################
     # Special treatment begins here.
     # Annotate Elements and create list of links.
@@ -94,11 +90,11 @@ def annotate(corePath):
             ElementName[mid] = element.get("_annotation")
         # Keep track of links, inverted.
         linked = element.find("linked")
-        for link in linked.findall("l"):
+        for link in linked.findall("l") if linked is not None else []:
             linkid = link.get("id")
-            if linkid is not None and linkid not in ElementLink:
-                ElementLink[linkid] = []
-            if mid not in ElementLink[linkid]:
+            if not linkid:
+                continue
+            if mid not in ElementLink.setdefault(linkid, []):
                 ElementLink[linkid].append(mid)
 
     # Element Second pass, give linked-by reference list.
@@ -131,9 +127,9 @@ def annotate(corePath):
     # small helper to annotate a node
     def _annotate_elt(element, attr=None):
         if attr:
-            name = elementNames[element.get(attr)]
+            name = elementNames.get(element.get(attr), "")
         else:
-            name = elementNames[element.get("element", element.get("elementId"))]
+            name = elementNames.get(element.get("element", element.get("elementId")), "")
         if name:
             element.set("_annotation", name)
         return name
@@ -174,7 +170,7 @@ def annotate(corePath):
 
     # iterate again once we have built all the process names
     for process in ProductRoot.xpath(".//list/processes/l[@process]"):
-        process.set("_annotation", elementNames[process.get("process")])
+        process.set("_annotation", elementNames.get(process.get("process"), ""))
 
     for trade in haven.find("TradingValues").findall(".//t"):
         try:
@@ -221,14 +217,14 @@ def annotate(corePath):
         # techtreeid = techtree.get("id")
         for techitem in techtree.find("items"):
             id = techitem.get("tid")
-            if TechName[id] is not None:
+            if TechName.get(id):
                 techitem.set("_annotation", TechName[id])
         for techlink in techtree.find("links"):
             fromId = techlink.get("fromId")
             toId = techlink.get("toId")
-            if TechName[fromId] is not None:
+            if TechName.get(fromId):
                 techlink.set("_fromName", TechName[fromId])
-            if TechName[toId] is not None:
+            if TechName.get(toId):
                 techlink.set("_toName", TechName[toId])
 
     # NOTE: Maybe this can be refactored or removed, since these already have _annotation.
@@ -242,10 +238,9 @@ def annotate(corePath):
             cat.set("_annotation", nameOf(cat))
             MainCatName[id] = cat.get("_annotation")
 
-    # NOTE: maybe refactor to only use the tags for the annotation, as the path is always the same and a bit verbose.
     ui.log.log("  annotate DataLogFragment...")
     # First get gfile names.
-    gfiles = ElementTree.parse(os.path.join(corePath, "library", "gfiles"), parser=create_xml_parser())
+    gfiles = etree.parse(os.path.join(corePath, "library", "gfiles"), parser=create_xml_parser())
     gfilename = {}
     for f in gfiles.getroot():
         id = f.get("id")

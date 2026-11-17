@@ -1,109 +1,108 @@
-name: build mod manager
+name: Build Mod Loader
 
 on:
   push:
-    branches:
-      - "master"
-  release:
-    types:
-      - "published"
+    branches: [master, update8, 'release/**']
+  pull_request:
+  workflow_dispatch:
 
 permissions:
-  contents: write
-
-env:
-  PYTHON_VERSION: "3.11.9"
+  contents: read
 
 jobs:
-  build:
+  test:
     strategy:
       fail-fast: false
       matrix:
-        settings:
-          - os: macos-latest
-            target: macos
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+      - run: uv python install
+      - run: uv sync --locked
+      - run: uv run --locked ruff check loader ui tests generate_nsis_filelist.py spacehaven-modloader.py tools
+      - run: uv run --locked python -m unittest discover -s tests -v
+
+  datefix-weaving:
+    strategy:
+      fail-fast: false
+      matrix:
+        java: ['25', '27']
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+      - run: uv python install
+      - run: uv sync --locked
+      - name: Execute DateFix through the real launch configuration
+        shell: pwsh
+        run: |
+          Set-Item -Path 'Env:SHL_TEST_JAVA${{ matrix.java }}' -Value "$env:JAVA_HOME/bin/java.exe"
+          $env:SHL_TEST_WEAVER = uv run --locked python -c 'from pathlib import Path; import os; from ui.aspectj_runtime import install_aspectj; print(install_aspectj(Path(os.environ["RUNNER_TEMP"]) / "shl-test-game" / "spacehaven.exe"))'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (!(Test-Path -LiteralPath $env:SHL_TEST_WEAVER)) { throw 'Verified AspectJ JAR missing' }
+          if (!(Get-Command javac -ErrorAction SilentlyContinue) -or !(Test-Path -LiteralPath "$env:JAVA_HOME/bin/java.exe")) { throw 'Java test prerequisites missing' }
+          uv run --locked python -m unittest tests.test_date_text_fix_weaving.WeavingSmokeTests.test_java${{ matrix.java }} -v
+
+  build-unix:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
           - os: ubuntu-latest
             target: linux
-    runs-on: ${{ matrix.settings.os }}
+          - os: macos-latest
+            target: macos
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+      - run: uv python install
+      - run: uv sync --locked --no-dev
+      - run: uv run --locked --no-dev python tools/build_frozen.py
+      - name: Sign macOS build
+        if: matrix.target == 'macos'
+        shell: bash
+        run: |
+          while IFS= read -r -d '' path; do
+            if [[ $(file -b "$path") == Mach-O* ]]; then
+              codesign --force --sign - "$path"
+            fi
+          done < <(find build/spacehaven-modloader -type f -print0)
+      - uses: actions/upload-artifact@v6
         with:
-          python-version: "${{ env.PYTHON_VERSION }}"
-
-      - name: Install the latest version of uv
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
-
-      - name: Setup development virtual environment
-        run: uv sync --frozen
-
-      - name: Run tests
-        run: uv run python -m unittest discover tests
-
-      - name: Setup production virtual environment
-        run: uv sync --frozen --no-dev
-
-      - name: Build cx_Freeze files
-        run:  uv run cxfreeze build
-
-      - name: Sign files on MacOS
-        if: matrix.settings.target == 'macos'
-        run: codesign --force --deep --sign - build/*
-
-      - name: Upload zip artifact
-        uses: actions/upload-artifact@v6
-        with:
-          name: spacehaven-modloader-b${{ github.run_number }}-${{ matrix.settings.target }}
-          path: build/
+          name: spacehaven-modloader-b${{ github.run_number }}-${{ matrix.target }}
+          path: build/spacehaven-modloader/
+          if-no-files-found: error
 
   build-windows:
-    runs-on: [ windows-latest ]
+    needs: [test, datefix-weaving]
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "${{ env.PYTHON_VERSION }}"
-
-      - name: Install the latest version of uv
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
-
-      - name: Setup development virtual environment
-        run: uv sync --frozen
-
-      - name: Run tests
-        run: uv run python -m unittest discover tests
-
-      - name: Setup production virtual environment
-        run: uv sync --frozen --no-dev
-
-      - name: Build cx_Freeze files
-        run:  uv run cxfreeze build
-
-      - name: Upload zip artifact
-        uses: actions/upload-artifact@v6
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+      - run: uv python install
+      - run: uv sync --locked --no-dev
+      - run: uv run --locked --no-dev python tools/build_frozen.py
+      - uses: actions/upload-artifact@v6
         with:
           name: spacehaven-modloader-b${{ github.run_number }}-windows
-          path: build\
-
+          path: build/spacehaven-modloader/
+          if-no-files-found: error
       - name: Build installer
         uses: ./.github/actions/build-nsis
         with:
-          generator-cmd: |
-            uv run python generate_nsis_filelist.py
+          generator-cmd: uv run --locked --no-dev python generate_nsis_filelist.py
           nsi-file: installer.nsi
-
       - name: Upload installer
         uses: actions/upload-artifact@v6
         with:
           name: spacehaven-modloader-b${{ github.run_number }}-setup
-          path: dist/*.exe
-
-      - name: Upload to release
-        if: github.event_name == 'release' || startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v3
-        with:
-          files: dist/*.exe
+          path: dist/spacehaven-modloader-*-setup.exe
+          if-no-files-found: error

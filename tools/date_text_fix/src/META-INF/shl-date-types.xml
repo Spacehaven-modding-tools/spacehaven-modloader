@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<aspectj>
+  <weaver>
+    <!-- An @Aspect class needs load-time weaving to provide aspectOf(). -->
+    <include within="shl.locale.SaveDateTextNormalizer" />
+    <include within="fi.bugbyte.spacehaven.gui.menu.GameMenu$SaveGameSlot" />
+    <include within="fi.bugbyte.spacehaven.gui.menu.GameMenu$CloudTab1$CloudSlot" />
+  </weaver>
+</aspectj>

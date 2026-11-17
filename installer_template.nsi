@@ -16,13 +16,21 @@ Page instfiles
 UninstPage uninstConfirm
 UninstPage instfiles
 
-Var CurrentFile
+Function VerifyLoaderDestination
+    IfFileExists "$INSTDIR\spacehaven.jar" reject
+    IfFileExists "$INSTDIR\spacehaven.exe" reject
+    IfFileExists "$INSTDIR\savegames\*.*" reject
+    Return
+    reject:
+        Abort
+FunctionEnd
 
-Function .onInstFile
-    DetailPrint 'Deploying: "$INSTDIR\$CurrentFile"'
+Function .onVerifyInstDir
+    Call VerifyLoaderDestination
 FunctionEnd
 
 Section "Install"
+    Call VerifyLoaderDestination
     SetDetailsPrint listonly
     SetOutPath "$INSTDIR"
     !include "FILE_LIST.nsh"
@@ -30,5 +38,7 @@ Section "Install"
 SectionEnd
 
 Section "Uninstall"
-    RMDir /r "$INSTDIR"
+    !include "UNINSTALL_FILE_LIST.nsh"
+    Delete "$INSTDIR\Uninstall.exe"
+    RMDir "$INSTDIR"
 SectionEnd

@@ -1,18 +1,19 @@
 from importlib.metadata import version as metadata_version, PackageNotFoundError
+from pathlib import Path
+import sys
 import tomllib
 
 
 def get_version():
-    try:
-        # Use the name defined in [project] name in pyproject.toml
-        return metadata_version("spacehaven-modloader"), "metadata"
-    except PackageNotFoundError:
+    if not getattr(sys, "frozen", False):
         try:
-            path = "pyproject.toml"
-            with open(path, "rb") as f:
-                return tomllib.load(f)["project"]["version"], "toml"
+            with Path(__file__).with_name("pyproject.toml").open("rb") as source:
+                return tomllib.load(source)["project"]["version"], "toml"
         except FileNotFoundError:
             pass
+    try:
+        return metadata_version("spacehaven-modloader"), "metadata"
+    except PackageNotFoundError:
         return "0.0.0", "unknown"
 
 

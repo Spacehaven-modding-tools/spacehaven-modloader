@@ -1,10 +1,11 @@
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from ui.database import Mod, ModDatabase, normalize_classpath_entry
-from ui.paths import resolve_workshop_path
+from ui.paths import loader_directory, resolve_workshop_path
 
 
 class FakeGameInfo:
@@ -59,6 +60,14 @@ class PathAndConfigTests(unittest.TestCase):
 
         self.assertIsNone(resolve_workshop_path(str(game_path)))
 
+    def test_frozen_loader_directory_uses_executable(self):
+        executable = self.root / "launcher path" / "spacehaven-modloader.exe"
+        with patch("sys.frozen", True, create=True), patch("sys.executable", str(executable)):
+            self.assertEqual(loader_directory(), executable.parent.resolve())
+
+    def test_source_loader_directory_uses_checkout(self):
+        self.assertEqual(loader_directory(), Path(__file__).resolve().parents[1])
+
     def test_mod_config_save_persists_values(self):
         mod_path = self.root / "mods" / "ConfigMod"
         info_path = write_info_xml(mod_path, "ConfigMod")
@@ -91,6 +100,29 @@ class PathAndConfigTests(unittest.TestCase):
         reloaded.locateMods()
 
         self.assertEqual([mod.name for mod in reloaded.mods], [mod.name for mod in database.mods])
+
+    def test_discovery_reports_skipped_items_and_folder_counts(self):
+        game_dir = self.root / "game"
+        local = game_dir / "mods"
+        workshop = self.root / "Steam" / "steamapps" / "workshop" / "content" / "979110"
+        write_info_xml(local / "Active", "Active")
+        write_info_xml(workshop / "100", "Workshop Mod")
+        (workshop / "101").mkdir()
+        invalid = workshop / "102"
+        invalid.mkdir()
+        (invalid / "info.xml").write_text("<mod>", encoding="utf-8")
+        database = ModDatabase([local, workshop, self.root / "missing"], FakeGameInfo(game_dir / "spacehaven.jar"))
+
+        database.locateMods()
+
+        self.assertEqual(len(database.mods), 3)
+        self.assertEqual(len(database.getActiveMods()), 2)
+        report = "\n".join(database.discovery)
+        self.assertIn("Mods found: 1", report)
+        self.assertIn("Mods found: 2", report)
+        self.assertIn("Skipped 101: no info or info.xml", report)
+        self.assertIn("102 is disabled because its metadata could not be read", report)
+        self.assertIn("Could not scan folder", report)
 
     def test_normalize_classpath_entry_uses_absolute_forward_slashes(self):
         path = self.root / "mods" / "My Mod" / "MyMod.jar"
