@@ -29,7 +29,7 @@ class Logger:
             except Exception:
                 pass
             self.localPath = newPath
-            self.localLog = open(self.localPath, "w")
+            self.localLog = open(self.localPath, "a", encoding="utf-8", errors="replace")
             for message in self.bufferedMessages:
                 self.localLog.write(message + "\n")
             self.localLog.flush()

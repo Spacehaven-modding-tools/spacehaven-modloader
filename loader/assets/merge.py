@@ -10,349 +10,133 @@ import ui.database
 import ui.log
 
 from .explode import Texture
-from .library import PATCHABLE_CIM_FILES, PATCHABLE_XML_FILES
+from .library import PATCHABLE_XML_FILES
 from .patch import doPatches
 from .utils import create_xml_parser
 
 
 def _detect_textures(coreLibrary, modLibrary, mod):
-    textures_path = os.path.join(mod, "textures")
-    if not os.path.isdir(textures_path):
+    textures_path = (Path(mod) / "textures").resolve()
+    if not textures_path.is_dir():
         return {}
+    if not textures_path.is_relative_to(Path(mod).resolve()):
+        raise ValueError(f"Texture directory leaves the mod: {textures_path}")
+    animations = modLibrary.get("library/animations", [])
+    texture_xml = modLibrary.get("library/textures", [])
+    regions = [region for tree in texture_xml for region in tree.xpath("//re[@n]")]
+    automatic = {}
+    textures = {}
+    references = {}
 
-    mapping_n_region = {}
-    modded_textures = {}
-    seen_textures = set()
-
-    def _add_texture(filename):
-        region_id = str.join(".", filename.split(".")[:-1])
-        isCoreRegion = region_id.isdecimal() and int(region_id) <= coreLibrary["_last_core_region_id"]
-        # Early exit if this texture exists
-        if (region_id in modded_textures) or (region_id in mapping_n_region):
-            return
-
-        path = os.path.join(textures_path, filename)
-        # core region file without an associated file, return early
-        if isCoreRegion and not os.path.exists(path):
-            return
-
-        if not isCoreRegion:
-            # adding a new texture, this gets tricky as they have to have consecutive numbers.
-            core_region_id = str(coreLibrary["_next_region_id"])
-            mapping_n_region[filename] = core_region_id
+    def register(filename, required=False):
+        if filename in references:
+            return references[filename]
+        path = (textures_path / filename).resolve()
+        if not path.is_relative_to(textures_path):
+            raise ValueError(f"Texture path leaves the mod: {filename}")
+        if not path.is_file():
+            if required:
+                raise FileNotFoundError(path)
+            return None
+        stem = Path(filename).stem
+        if stem.isdecimal() and 0 <= int(stem) <= coreLibrary["_last_core_region_id"]:
+            region_id = str(int(stem))
+        else:
+            region_id = str(coreLibrary["_next_region_id"])
             coreLibrary["_next_region_id"] += 1
-            ui.log.log(f"    Allocated new core region idx {core_region_id:>5} to file {filename}")
-        else:
-            core_region_id = region_id
-            ui.log.log(f"    Mod updated texture region {core_region_id}")
+        references[filename] = region_id
+        textures[region_id] = {"path": str(path)}
+        return region_id
 
-        seen_textures.add(filename)
-        modded_textures[core_region_id] = {
-            "mapped_from_id": region_id,
-            "filename": filename,
-            "path": path,
-        }
+    for tree in texture_xml:
+        for page in tree.xpath("//t[@i]"):
+            page_id = str(int(page.get("i")))
+            page.set("i", page_id)
+            coreLibrary["_custom_textures_cim"][page_id] = dict(page.attrib)
 
-    autoAnimations = False
-    for animation_chunk in modLibrary["library/animations"]:
-        filenameAssetPos = animation_chunk.find(".//assetPos[@filename]")
-        if filenameAssetPos is not None:
-            autoAnimations = True
-
-    # no textures.xml file and no autoAnimations, we're done
-    if "library/textures" not in modLibrary and not autoAnimations:
-        return modded_textures
-    # Create a textures xml tree if there was no manually-defined file
-    if "library/textures" not in modLibrary and autoAnimations:
-        texRoot = lxml.etree.Element("AllTexturesAndRegions")
-        lxml.etree.SubElement(texRoot, "textures")
-        lxml.etree.SubElement(texRoot, "regions")
-        modLibrary["library/textures"] = [lxml.etree.ElementTree(texRoot)]
-
-    # FIXME verify that there's only one file
-    # TODO Maybe don't require only a single file?
-    textures_count = len(modLibrary["library/textures"])
-    if len(modLibrary["library/textures"]) != 1:
-        ui.log.log(f"    Expected 1 library/textures but found {textures_count}")
-
-    textures_mod = modLibrary["library/textures"][0]
-
-    # Allocate any manually defined texture regions into the CTC lib
-    for texture_pack in textures_mod.xpath("//t[@i]"):
-        cim_id = texture_pack.get("i")
-        coreLibrary["_custom_textures_cim"][cim_id] = texture_pack.attrib
-
-    # Map manually defined regions in textures file to autoIDs
-    for region in textures_mod.xpath("//re[@n]"):
+    for region in regions:
         region_id = region.get("n")
-        _add_texture(region_id)
+        filename = region_id + ".png"
+        mapped = register(filename)
+        if mapped is not None:
+            region.set("n", mapped)
+        if region.get("t") is not None:
+            region.set("t", str(int(region.get("t"))))
 
-    # no custom mod textures, no need to remap ids
-    if not mapping_n_region and not autoAnimations:
-        return modded_textures
+    for tree in animations:
+        for asset in tree.xpath("//assetPos[@filename]"):
+            filename = asset.get("filename").lstrip("/")
+            if not filename.lower().endswith(".png"):
+                filename += ".png"
+            # A filename explicitly requests new atlas placement unless manually defined.
+            region_id = register(filename, required=True)
+            asset.set("a", region_id)
+            if int(region_id) > coreLibrary["_last_core_region_id"] and not any(r.get("n") == region_id for r in regions):
+                automatic[filename] = region_id
+        for asset in tree.xpath("//assetPos[@a and not(@filename)]"):
+            region = asset.get("a")
+            if not region.isdecimal():
+                raise ValueError(f"Non-numeric texture region ID: {region!r}")
+            if mapped := references.get(region + ".png"):
+                asset.set("a", mapped)
 
-    ##########################################################################
-    # Custom Mod Textures processing starts here
-    ##########################################################################
-    needs_autogeneration = set()
-    for animation_chunk in modLibrary["library/animations"]:
-        # iterate on autogeneration nodes
-        for asset in animation_chunk.xpath("//assetPos[@filename]"):
-            # asset.get will never return null here
-            mod_local_id = asset.get("filename").lstrip("/")
-            if ".png" not in mod_local_id:
-                mod_local_id += ".png"
-            if mod_local_id not in needs_autogeneration:
-                needs_autogeneration.add(mod_local_id)
-                _add_texture(mod_local_id)
-            if mod_local_id not in mapping_n_region:
-                continue
-            new_id = mapping_n_region[mod_local_id]
-            asset.set("a", new_id)
+    if not automatic:
+        return textures
 
-        # iterate on manually defined nodes
-        for asset in animation_chunk.xpath("//assetPos[@a and not(@filename)]"):
-            mod_local_id = asset.get("a")
-            if not str.isdecimal(mod_local_id):
-                raise ValueError(f"Cannot specify a non-numerical 'a' attribute {mod_local_id}. " + "Specify in 'filename' attribute instead.")
-            _add_texture(mod_local_id + ".png")
-            if mod_local_id not in mapping_n_region:
-                continue
-            new_id = mapping_n_region[mod_local_id]
-            asset.set("a", new_id)
+    if not texture_xml:
+        root = lxml.etree.Element("AllTexturesAndRegions")
+        texture_xml = modLibrary["library/textures"] = [lxml.etree.ElementTree(root)]
+    root = texture_xml[0].getroot()
+    pages_node = root.find("textures")
+    if pages_node is None:
+        pages_node = lxml.etree.SubElement(root, "textures")
+    regions_node = root.find("regions")
+    if regions_node is None:
+        regions_node = lxml.etree.SubElement(root, "regions")
 
-    if len(needs_autogeneration):
-        regionsNode = textures_mod.find(".//regions")
-        texturesNode = textures_mod.find(".//textures")
+    size = 2048
+    packer = rectpack.newPacker(rotation=False)
+    packer.add_bin(size, size, count=float("inf"))
+    for filename, region_id in sorted(automatic.items()):
+        with open(textures[region_id]["path"], "rb") as source:
+            reader = png.Reader(file=source)
+            reader.preamble()
+            width, height = reader.width, reader.height
+        if not (0 < width <= size and 0 < height <= size):
+            raise ValueError(f"Texture {filename} is {width}x{height}, exceeding the {size}x{size} atlas")
+        packer.add_rect(width, height, region_id)
+    packer.pack()
+    rectangles = packer.rect_list()
+    if len(rectangles) != len(automatic):
+        raise ValueError(f"Could not pack all textures for {mod}")
+    ui.log.log(f"    Packed {len(rectangles)} texture(s) into {len(packer)} sprite sheet(s).")
 
-        textureID: int = ui.database.ModDatabase.getMod(mod).prefix
-
-        if not textureID or textureID <= 0:
-            ui.log.log(
-                "ERROR: info.xml is missing <modid>. "
-                "Mod Author should set this to their Discord ID for all mods they make."
-            )
-            textureID = 9999
-            
-        # Sprite sheets MUST be 2048 x 2048
-        standard_dimension: int = 2048
-        str_dimension: str = str(standard_dimension)
-
-        packer = rectpack.newPacker(rotation=False)
-        packer.add_bin(
-            standard_dimension,
-            standard_dimension,
-            count=float("inf"),
-        )
-
-        for regionName in sorted(needs_autogeneration):
-            texture_path = os.path.join(textures_path, regionName)
-            (w, h, rows, info) = png.Reader(texture_path).asRGBA()
-
-            if w > standard_dimension or h > standard_dimension:
-                raise Exception(
-                    f"Texture '{regionName}' in mod "
-                    f"'{os.path.basename(mod)}' is {w}x{h}, "
-                    f"which is larger than the supported "
-                    f"{standard_dimension}x{standard_dimension} sprite sheet."
-                )
-
-            packer.add_rect(w, h, regionName)
-
-        # Pack files and check that we packed everything
-        packer.pack()
-
-        rectangles_packed: int = sum(
-            len(packer_bin) for packer_bin in packer
-        )
-
-        if rectangles_packed < len(needs_autogeneration):
-            packed_names = {
-                rect[-1] for rect in packer.rect_list()
-            }
-
-            unpacked = sorted(
-                set(needs_autogeneration) - packed_names
-            )
-
-            raise Exception(
-                f"Mod '{os.path.basename(mod)}' could not pack all sprites "
-                f"into {standard_dimension}x{standard_dimension} texture pages. "
-                f"Unpacked sprites: {', '.join(unpacked)}"
-            )
-
-        bin_count = len(packer)
-
-        ui.log.log(
-            f"    Packed {rectangles_packed} texture(s) into "
-            f"{bin_count} sprite sheet(s)."
-        )
-
-        used_texture_ids = set()
-
-        for texture_node in coreLibrary["library/textures"].xpath("//t[@i]"):
-            try:
-                used_texture_ids.add(
-                    int(texture_node.get("i"))
-                )
-            except (TypeError, ValueError):
-                pass
-
-        for cim_id in coreLibrary["_custom_textures_cim"].keys():
-            try:
-                used_texture_ids.add(int(cim_id))
-            except (TypeError, ValueError):
-                pass
-
-        for prefix in ui.database.ModDatabase.Prefixes.keys():
-            try:
-                prefix = int(prefix)
-
-                if prefix > 0:
-                    used_texture_ids.add(prefix)
-
-            except (TypeError, ValueError):
-                pass
-
-        page_ids = {
-            0: textureID,
-        }
-
-        used_texture_ids.add(textureID)
-
-        if used_texture_ids:
-            next_texture_id = max(used_texture_ids) + 1
+    used = {int(page.get("i")) for page in coreLibrary["library/textures"].xpath("//t[@i]")}
+    used.update(map(int, coreLibrary["_custom_textures_cim"]))
+    reserved = set(ui.database.ModDatabase.Prefixes)
+    registered_mod = ui.database.ModDatabase.getMod(mod)
+    preferred = registered_mod.prefix if registered_mod else None
+    next_page = max(used | {9998}) + 1
+    page_ids = []
+    for index in range(len(packer)):
+        if index == 0 and preferred and preferred > 0 and preferred not in used:
+            page_id = preferred
         else:
-            next_texture_id = textureID + 1
+            while next_page in used or next_page in reserved:
+                next_page += 1
+            page_id = next_page
+        used.add(page_id)
+        page_ids.append(page_id)
+        attributes = {"i": str(page_id), "w": str(size), "h": str(size)}
+        lxml.etree.SubElement(pages_node, "t", **attributes)
+        coreLibrary["_custom_textures_cim"][str(page_id)] = attributes
 
-        # Allocate IDs for every additional 2048x2048 page.
-        for bin_index in range(1, bin_count):
-            while next_texture_id in used_texture_ids:
-                next_texture_id += 1
-
-            page_ids[bin_index] = next_texture_id
-            used_texture_ids.add(next_texture_id)
-
-            next_texture_id += 1
-        
-        # prepare to export packed PNG to mod directory.
-        kwargs = {
-            "create": True,
-            "width": standard_dimension,
-            "height": standard_dimension,
-        }
-
-        custom_pngs = {}
-        export_paths = {}
-
-        for bin_index in range(bin_count):
-            page_id = page_ids[bin_index]
-
-            newTex = lxml.etree.SubElement(
-                texturesNode,
-                "t",
-            )
-
-            newTex.set("i", str(page_id))
-            newTex.set("w", str_dimension)
-            newTex.set("h", str_dimension)
-
-            coreLibrary["_custom_textures_cim"][
-                str(page_id)
-            ] = newTex.attrib
-
-            export_path = os.path.join(
-                mod,
-                f"custom_texture_{page_id}.png",
-            )
-
-            export_paths[bin_index] = export_path
-
-            custom_pngs[bin_index] = Texture(
-                export_path,
-                **kwargs,
-            )
-
-        packedRectsSorted = {}
-
-        for rect in packer.rect_list():
-            bin_index, x, y, w, h, rid = rect
-
-            page_id = page_ids[bin_index]
-            remappedID = mapping_n_region[rid]
-           
-            # NOT YET SORTED
-            packedRectsSorted[remappedID] = (
-                str(page_id),
-                str(x),
-                str(y),
-                str(w),
-                str(h),
-                str(rid),
-            )
-            # NOW SORTED: We need this to make sure the IDs are added to the textures file in the correct order
-            
-            custom_pngs[bin_index].pack_png(
-                os.path.join(
-                    textures_path,
-                    rid,
-                ),
-                x,
-                y,
-                w,
-                h,
-            )
-
-        for bin_index, custom_png in custom_pngs.items():
-            custom_png.export_png(
-                export_paths[bin_index]
-            )
-
-        packedRectsSorted = {
-            k: v
-            for k, v in sorted(
-                packedRectsSorted.items()
-            )
-        }
-
-        for remappedID, data in packedRectsSorted.items():
-            (
-                page_id,
-                x,
-                y,
-                w,
-                h,
-                regionFileName,
-            ) = data
-
-            newNode = lxml.etree.SubElement(
-                regionsNode,
-                "re",
-            )
-
-            newNode.set("n", remappedID)
-
-            newNode.set("t", page_id)
-
-            newNode.set("x", x)
-            newNode.set("y", y)
-            newNode.set("w", w)
-            newNode.set("h", h)
-            newNode.set("file", regionFileName)
-
-    for asset in textures_mod.xpath("//re[@n]"):
-        mod_local_id = asset.get("n")
-        if mod_local_id not in mapping_n_region:
-            continue
-        new_id = mapping_n_region[mod_local_id]
-        ui.log.log("  Mapping texture 're' {} to {}...".format(mod_local_id, new_id))
-        asset.set("n", new_id)
-
-    # write the new textures XML if changed.
-    if autoAnimations:
-        modLibrary["library/textures"][0].write(os.path.join(mod, "library", "generated_textures.xml"), pretty_print=True)
-
-    return modded_textures
+    for page, x, y, width, height, region_id in sorted(rectangles, key=lambda rect: int(rect[-1])):
+        lxml.etree.SubElement(
+            regions_node, "re", n=region_id, t=str(page_ids[page]),
+            x=str(x), y=str(y), w=str(width), h=str(height), file=Path(textures[region_id]["path"]).name,
+        )
+    return textures
 
 
 def buildLibrary(location: str, mod: str):
@@ -363,7 +147,7 @@ def buildLibrary(location: str, mod: str):
 
     location_library = {}
     try:
-        location_files = [location + "/" + mod_file for mod_file in os.listdir(_mod_path(location))]
+        location_files = [location + "/" + mod_file for mod_file in sorted(os.listdir(_mod_path(location)), key=str.casefold)]
     except FileNotFoundError:
         location_files = []
 
@@ -377,15 +161,12 @@ def buildLibrary(location: str, mod: str):
                 location_library[target] = []
 
             ui.log.log("    {} <= {}".format(target, mod_file))
-            with open(_mod_path(mod_file), "rb") as f:
+            path = Path(_mod_path(mod_file)).resolve()
+            if not path.is_relative_to(Path(mod).resolve()) or not path.is_file():
+                raise ValueError(f"Invalid mod input file: {path}")
+            with path.open("rb") as f:
                 location_library[target].append(lxml.etree.parse(f, parser=create_xml_parser()))
 
-        mod_file = _mod_path(target)
-        # try again with the extension ?
-        if not os.path.exists(mod_file):
-            mod_file += ".xml"
-            if not os.path.exists(mod_file):
-                continue
     return location_library
 
 
@@ -398,11 +179,12 @@ def mods(corePath, activeMods, modPaths):
 
     for filename in PATCHABLE_XML_FILES:
         with open(_core_path(filename), "rb") as f:
-            coreLibrary[filename] = lxml.etree.parse(f, parser=create_xml_parser())
+            # Build 1.0.4 has malformed entity references in its shipped texts.
+            coreLibrary[filename] = lxml.etree.parse(f, parser=create_xml_parser(recover=filename == "library/texts"))
 
     # find the last region in the texture file and remember its index
     # we will need this to add mod textures with consecutive indexes...
-    coreLibrary["_last_core_region_id"] = int(coreLibrary["library/textures"].find(".//re[@n][last()]").get("n"))
+    coreLibrary["_last_core_region_id"] = max(int(node.get("n")) for node in coreLibrary["library/textures"].xpath("//re[@n]"))
     coreLibrary["_next_region_id"] = coreLibrary["_last_core_region_id"] + 1
     coreLibrary["_all_modded_textures"] = {}
     coreLibrary["_custom_textures_cim"] = {}
@@ -509,15 +291,20 @@ def mods(corePath, activeMods, modPaths):
 
         # copy audio to library
         ui.log.log(f"  Copying {audio_relative_path}...")
-        audio_dst_path = os.path.join(corePath, "library", audio_type.lower(), audio_encoding, audio_filename)
-        shutil.copy(str(audio_src_path), audio_dst_path)
+        expected_root = f"library/{audio_type.lower()}/"
+        audio_dst_path = (Path(corePath) / audio_relative_path).resolve()
+        if (not audio_relative_path.startswith(expected_root)
+                or not audio_dst_path.is_relative_to(Path(corePath).resolve() / "library" / audio_type.lower())
+                or "\\" in audio_relative_path or ":" in audio_relative_path):
+            raise ValueError(f"Invalid audio destination: {audio_relative_path}")
+        audio_dst_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(audio_src_path, audio_dst_path)
         extra_assets.append(audio_relative_path)
 
     # TEXTURE
     ui.log.updateLaunchState("Packing textures")
     # add or overwrite textures from mods. This is done after all the XML has been merged into the core "textures" file
     cims = {}
-    reexport_cims = {}
 
     for region in coreLibrary["library/textures"].xpath("//re[@n]"):
         name = region.get("n")
@@ -527,23 +314,16 @@ def mods(corePath, activeMods, modPaths):
 
         png_file = coreLibrary["_all_modded_textures"][name]["path"]
 
-        page = region.get("t")
+        page = str(int(region.get("t")))
         if page not in cims:
             cim_name = "{}.cim".format(page)
-            kwargs = {"create": False}
-            # TODO better cross checking of texture packs
-            if "library/" + cim_name not in PATCHABLE_CIM_FILES:
-                kwargs["create"] = True
-                kwargs["width"] = coreLibrary["_custom_textures_cim"][page]["w"]
-                kwargs["height"] = coreLibrary["_custom_textures_cim"][page]["h"]
-                extra_assets.append("library/" + cim_name)
-
-            cims[page] = Texture(os.path.join(corePath, "library", cim_name), **kwargs)
-
-            reexport_cims[page] = set()
-
-        # write back the cim file as png for debugging
-        # reexport_cims[page].add(os.path.normpath(mod + "/textures"))
+            page_path = Path(corePath) / "library" / cim_name
+            if page_path.is_file():
+                cims[page] = Texture(page_path)
+            else:
+                dimensions = coreLibrary["_custom_textures_cim"][page]
+                cims[page] = Texture(page_path, create=True, width=dimensions["w"], height=dimensions["h"])
+            extra_assets.append("library/" + cim_name)
 
         x = int(region.get("x"))
         y = int(region.get("y"))
@@ -639,16 +419,8 @@ def doMerges(coreLib, modLib, mod: str):
     else:
         mergeAbortMessage(currentFile)
 
-    # do that before merging animations and textures because references might have to be remapped!
+    # Remap texture references before merging animations and textures.
     coreLib["_all_modded_textures"].update(_detect_textures(coreLib, modLib, mod))
-
-    # this way the last mod loaded will overwrite previous textures
-    # FIXME reimplement this test
-    # if region_id in all_modded_textures:
-    #    ui.log.log("  ERROR CONFLICT {}...".format(filename))
-    #    ui.log.log("  ERROR CONFLICT {}...".format(filename))
-    #    ui.log.log("  ERROR CONFLICT {}...".format(filename))
-    #    continue
 
     currentFile = "library/animations"
     if currentFile in modLib:
@@ -692,7 +464,7 @@ def mergeDefinitions(baseLibrary, modLibrary, file, xpath, idAttribute):
 
             # TODO auto-id algo: if element.get(idAttribute + "_auto") then
             # id = prefix * idSpaceSize + id
-            conflicts = baseRoot.xpath("*[@{}='{}']".format(idAttribute, element.get(idAttribute)))
+            conflicts = baseRoot.xpath("*[@*[name()=$attr] = $value]", attr=idAttribute, value=element.get(idAttribute, ""))
 
             for conflict in conflicts:
                 baseRoot.remove(conflict)

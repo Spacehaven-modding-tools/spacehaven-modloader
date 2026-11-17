@@ -1,10 +1,11 @@
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from ui.database import Mod, ModDatabase, normalize_classpath_entry
-from ui.paths import resolve_workshop_path
+from ui.paths import loader_directory, resolve_workshop_path
 
 
 class FakeGameInfo:
@@ -58,6 +59,14 @@ class PathAndConfigTests(unittest.TestCase):
         game_path.parent.mkdir(parents=True, exist_ok=True)
 
         self.assertIsNone(resolve_workshop_path(str(game_path)))
+
+    def test_frozen_loader_directory_uses_executable(self):
+        executable = self.root / "launcher path" / "spacehaven-modloader.exe"
+        with patch("sys.frozen", True, create=True), patch("sys.executable", str(executable)):
+            self.assertEqual(loader_directory(), executable.parent.resolve())
+
+    def test_source_loader_directory_uses_checkout(self):
+        self.assertEqual(loader_directory(), Path(__file__).resolve().parents[1])
 
     def test_mod_config_save_persists_values(self):
         mod_path = self.root / "mods" / "ConfigMod"

@@ -17,6 +17,8 @@ dist/
 *.spec
 installer.nsi
 FILE_LIST.nsh
+UNINSTALL_FILE_LIST.nsh
+.shl-datefix-*/
 
 # IDE / editor
 .vscode/.ropeproject/
@@ -37,6 +39,12 @@ quicklaunch_*.jar
 quicklaunch_*/
 _quicklaunch_*.jar
 extra_mods_path.txt
+quicklaunch_*.jar.sha256
+*.jar.vanilla
+*.modloader-stage
+logs/
+savegames/
+experimental_runtime.json
 
 # Other
 *.patch

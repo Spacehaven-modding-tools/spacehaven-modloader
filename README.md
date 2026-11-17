@@ -1,14 +1,16 @@
 # Space Haven Mod Loader
 
-This is a modding tool for [Space Haven by Bugbyte](http://bugbyte.fi/spacehaven/), a spaceship colony sim.
+A modding tool for [Space Haven by Bugbyte](https://bugbyte.fi/spacehaven/).
+
+See the [change log](CHANGELOG.md) for version history.
 
 ## Getting Started
 
-Download the [latest release](https://github.com/Spacehaven-modding-tools/spacehaven-modloader/releases) and fire it up.
+Download the Mod Loader from the repository's **Releases** page, or see [DEVELOPERS.md](DEVELOPERS.md) to run it from source. On Windows, install the Mod Loader in a separate folder from the game.
 
 ![Screenshot](/tools/screenshot.png?raw=true)
 
-1. Make sure it found where you installed Space Haven. If it didn't, you'll need to locate it manually via the "Browse..." button in the top right corner.
+1. Confirm the game path, or select your installation with **Find game**.
 
 2. Click the "Open Mods Folder" button to open your game's `mods` folder.
 
@@ -35,11 +37,21 @@ mods/
 
 4. Go back to the mod loader and make sure the mods you installed appear in the list. If they don't then you might not have installed them properly. Double check the folder structure.
 
-5. When you're ready click "Launch Space Haven!" to play with mods. The mod loader will load the mods into the game, launch the game, and then unload them again when the game exits.
+5. Click **Launch**. The loader builds a separate JAR when enabled mods change game assets.
 
-6. Once you've played with a given set of mods, the loader will keep a QuickLaunch cache file for them. The next time they will load a lot faster. The cache is stored in `SpaceHaven/mods/modloader`. If you want to develop your own mod or tweak one, click **Clear QuickLaunch cache** before running the game, so your changes are taken into account.
+6. QuickLaunch stores generated JARs under `mods/modloader`. Changes to the game, mods, or load order invalidate the cache. Use **Clear QuickLaunch cache** to remove cached JARs for the current installation.
 
 The Mod Loader also writes its diagnostics log and small state files to `SpaceHaven/mods/modloader` after the game folder is detected.
+
+## Java Runtimes
+
+**Original** starts the Java 8 runtime bundled with the game. On Windows x64, Temurin 25 and 27 are experimental options.
+
+1. Select a Temurin runtime and click **Install Java + AspectJ**. The loader verifies both downloads with SHA-256.
+2. Click **Check runtime** to verify the installation and launch configuration. Use **Classpath** to review the JARs selected for the next launch.
+3. To return to Java 8, select **Original**.
+
+When you launch with Temurin 25 or 27, DateFix replaces narrow and non-breaking spaces in the timestamps shown in the local and cloud save lists. The loader stores experimental runtimes per game installation under `mods/modloader/runtimes`.
 
 ## Configuration and Load Order
 
@@ -51,15 +63,13 @@ Use **Move up** and **Move down** to adjust load order. The selected order is sa
 
 ## Workshop JAR Mods
 
-JAR/AspectJ mods installed from Steam Workshop are loaded automatically from their Workshop folder. Enable them like any other mod and click **Launch Space Haven!**.
+The loader discovers JAR mods in the selected Steam library's Workshop directory. Enable them in the mod list before launching the game.
 
 Modders working on JAR/AspectJ mods can find internals (classpath handling, asset resolution conventions) in [DEVELOPERS.md](DEVELOPERS.md) and in the [SpaceHavenModTemplate](https://github.com/Spacehaven-modding-tools/SpaceHavenModTemplate) repository.
 
 ## Known issues
 
-If you change the language or restart the game from within itself, the modloader will think the game has quit and will throw an error. Nothing permanent.
-
-Running the game from the modloader will not load your cloud credentials correctly. 
+Steam Cloud, Steam account integration, and in-game restarts need further testing with the direct Java launcher.
 
 ## Modding Guide
 
@@ -70,23 +80,11 @@ These mods use AspectJ (similar to Harmony in C#) to allow you to inject code be
 
 There's a [template repo](https://github.com/Spacehaven-modding-tools/SpaceHavenModTemplate) that you can use as a basis for creating your own code injection mod. The template repo includes instructions on how to set up your dev environment as well as some basic sample mods.
 
-#### Where the loader writes `config.json`
+#### Effective classpath
 
-`config.json` is always resolved as `<gameDir>/config.json`, where `<gameDir>` is the directory of the detected `spacehaven.jar`. The loader never resolves `config.json` relative to a Steam Workshop content folder, even when the mod itself lives in `steamapps/workshop/content/979110/<id>/`.
+The loader reads `config.json` beside the selected game JAR. It builds the classpath for the current session from enabled local and Workshop mods. **Classpath** shows excluded entries from the configuration and the effective order. Use a relative manifest dependency contained in the mod for companion JARs outside its top level.
 
-#### `classPath` injection
-
-When a JAR mod is enabled, the loader inserts the JAR's absolute path (with forward slashes) into `config.json` → `classPath`, immediately before `spacehaven.jar`. AspectJ entries (`aspectjweaver-1.9.19.jar`, `aspectj-1.9.19.jar`) are kept at positions 0 and 1. Existing unrelated entries are preserved in their original order.
-
-#### `classPath` cleanup
-
-During mod discovery and before each launch, the loader performs a conservative cleanup of `classPath`:
-
-- Entries under known mod roots (local `mods/` and the Steam Workshop content folder) that no longer correspond to an enabled mod are removed.
-- Entries under known mod roots whose file is missing are removed.
-- Exact duplicate entries are deduped.
-- Entries outside known mod roots are left untouched (manual additions are preserved).
-- If `config.json` is missing or `classPath` is not a list, cleanup is skipped.
+The launcher selects its entry point from the game JAR manifest. It uses the original game JAR unless an enabled mod changes game assets.
 
 #### Asset resolution for JAR mods
 
@@ -196,4 +194,4 @@ The loader can overwrite existing textures from the base game and add new ones. 
 
 To add a new texture, you need to add a `<re n="..." t="..." />` entry in `library/textures.xml`. Textures are packed together in `.cim` files, which are defined in `<t i="..." />` entries. The `re` entry references the `t` entry through it's index `i`. Take care of choosing reasonably unique indexes to avoid conflicts. Once this is done, you can add the `123456.png` file to the `textures` directory. 
 
-When loading your mod, the modloader will output the png version of the packed texture file for debugging purposes. This will allow you to check proper placement for new textures, or correct merging for existing ones.
+To inspect the packed output, extract the textures from the generated QuickLaunch JAR.

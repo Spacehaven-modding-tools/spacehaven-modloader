@@ -1,4 +1,24 @@
 # Change Log
+
+## v0.12.8
+- Add experimental Temurin 25 and 27 options alongside the bundled Java 8 runtime. Verify download checksums, installed files, JVM version, and architecture before launch.
+- Use AspectJ 1.9.27 with Temurin 25 and 27, and keep AspectJ 1.9.19 for JAR mods on Java 8.
+- Fix missing glyphs in save timestamps on Java 25 and 27. Include DateFix itself in restricted weaving configurations.
+- Build the classpath from enabled local and Workshop mods in load order. Show excluded entries in **Classpath** and leave `config.json` intact.
+- Resolve extra mod paths per game installation. Fix saved game paths when launching from a shortcut or the Workshop directory, and skip stale Steam library entries.
+- Use a separate QuickLaunch JAR for asset mods. Keep the original game JAR in place, and support recovery from a validated legacy backup when the original is missing.
+- Invalidate QuickLaunch when the game, mod inputs, load order, or build inputs change. Verify cached output before reuse and skip JAR rebuilding for code-only mods.
+- Fix texture reference remapping and atlas bounds. Close source PNG files after packing and keep generated files out of mod directories.
+- Validate XML patches and contain audio and texture paths. Stream JAR entries with the standard ZIP reader and handle identical directory aliases in the Steam JAR.
+- Run downloads and launch preparation outside the UI thread. Report preparation failures and new game crash reports even if the JVM exits with code 0.
+- Add per-JVM logs and a diagnostics ZIP export. Use relative source paths in frozen tracebacks.
+- Update cx_Freeze, lxml, setuptools, and filelock. Remove zipfile39.
+- Make the Windows installer reject game directories and uninstall only the files in its manifest.
+- Add regression tests for Java installation, launch configuration, QuickLaunch, legacy recovery, asset handling, and DateFix with clean and modded classpaths.
+
+## v0.12.7
+- Add support for packing custom textures across multiple 2048 × 2048 pages. Allocate a unique ID for each additional page.
+
 ## v0.12.6
 - Rework GitHub Actions build for mod loader. Makes it easier to build the mod loader for different operating systems.
 

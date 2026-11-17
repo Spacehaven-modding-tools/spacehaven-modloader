@@ -3,6 +3,8 @@
 import os
 import platform
 import threading
+import hashlib
+import tempfile
 import traceback
 import vdf
 from pathlib import Path
@@ -19,6 +21,8 @@ from ui.gameinfo import GameInfo
 import ui.header
 import ui.launcher
 import ui.log
+from ui import launch_config, launch_session, runtime_manager
+from ui.cache_fingerprint import mod_fingerprint
 import ui.paths
 import version
 from ui.scrolledlistbox import ScrolledListbox
@@ -52,13 +56,12 @@ def _read_text_file(path):
 
 
 def _write_text_file(path, value):
-    parent = os.path.dirname(path)
-    if parent:
-        os.makedirs(parent, exist_ok=True)
-    tmp_path = path + ".tmp"
-    with open(tmp_path, "w", encoding="utf-8") as outFile:
-        outFile.write(value)
-    os.replace(tmp_path, path)
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=".shl-pref-", dir=target.parent) as scratch:
+        stage = Path(scratch) / target.name
+        stage.write_text(value, encoding="utf-8")
+        os.replace(stage, target)
 
 
 # Frame with built in scrollbar. Used for MonConfigFrame
@@ -270,6 +273,27 @@ class Window(Frame):
         self.launchButton = Button(buttonFrame, text=self.launchButton_default_text, command=self.launch_wrapper, height=2, font=font.Font(size=14, weight="bold"))
         self.launchButton.pack(side=LEFT, padx=8, pady=4)
 
+        runtimeFrame = self.runtimeFrame = Frame(self)
+        self.runtime_options = {
+            "Original (game bundled Java)": runtime_manager.MODE_ORIGINAL,
+            "Temurin 25 (experimental)": runtime_manager.MODE_TEMURIN25,
+            "Temurin 27 (experimental)": runtime_manager.MODE_TEMURIN,
+        }
+        self.runtime_label = Label(runtimeFrame, text="Java runtime:")
+        self.runtime_label.pack(side=LEFT, padx=(8, 2), pady=4)
+        self.runtime_choice = StringVar(value="Original (game bundled Java)")
+        self.runtime_selector = ttk.Combobox(runtimeFrame, textvariable=self.runtime_choice, values=list(self.runtime_options), state="readonly", width=30)
+        self.runtime_selector.pack(side=LEFT, padx=2, pady=4)
+        self.runtime_selector.bind("<<ComboboxSelected>>", self.on_runtime_selected)
+        self.installJava27Button = Button(runtimeFrame, text="Install Java + AspectJ", command=self.install_selected_java)
+        self.installJava27Button.pack(side=LEFT, padx=6, pady=4)
+        self.testRuntimeButton = Button(runtimeFrame, text="Check runtime", command=self.test_selected_runtime)
+        self.testRuntimeButton.pack(side=LEFT, padx=4, pady=4)
+        self.exportLogsButton = Button(runtimeFrame, text="Export logs", command=self.export_launch_logs)
+        self.classpathButton = Button(runtimeFrame, text="Classpath", command=self.show_classpath_diagnostics)
+        self.classpathButton.pack(side=LEFT, padx=4, pady=4)
+        self.exportLogsButton.pack(side=LEFT, padx=4, pady=4)
+
         # Frame(self, height=1, bg="grey").pack(fill=X, padx=4, pady=8)
         self.spacehavenPicker = Frame(buttonFrame)
         self.spacehavenPicker.pack(fill=X, padx=4, pady=4)
@@ -311,7 +335,8 @@ class Window(Frame):
         self.quickLaunchClear = Button(buttonFrame, text="Clear QuickLaunch cache", command=self.clear_quick_launch)
         self.quickLaunchClear.pack(side=RIGHT, expand=False, padx=8, pady=4)
 
-        buttonFrame.pack(fill=X, padx=4, pady=8)
+        buttonFrame.pack(fill=X, padx=4, pady=4)
+        runtimeFrame.pack(fill=X, padx=6, pady=(0, 6))
 
         self.autolocateSpacehaven()
 
@@ -325,9 +350,9 @@ class Window(Frame):
         # This file lives outside the game folder on purpose: we need to find
         # the game before we know which game folder to look inside.
         try:
-            location = _read_text_file(loader.load.PREVIOUS_GAME_PATH_FILENAME)
-            if os.path.exists(location):
-                self.locateSpacehaven(location)
+            preference = ui.paths.loader_directory() / loader.load.PREVIOUS_GAME_PATH_FILENAME
+            location = _read_text_file(preference).strip()
+            if Path(location).is_absolute() and Path(location).exists() and self.locateSpacehaven(location):
                 return
         except FileNotFoundError:
             ui.log.log("Unable to get last space haven location. Autolocating again.")
@@ -351,16 +376,14 @@ class Window(Frame):
                 steam_path = Path(Path.home(), "Library", "Application Support", "Steam")
                 game_executable += ".app"
 
-            libraryfolders_vdf = vdf.parse(open(str(Path(steam_path, "steamapps", "libraryfolders.vdf"))))["libraryfolders"]
-            for key in libraryfolders_vdf:
-                value = libraryfolders_vdf[key]
-                ui.log.log(str(value))
-                # let's see if the game is on the dir
-                if not value["apps"].get("979110"):
+            with Path(steam_path, "steamapps", "libraryfolders.vdf").open(encoding="utf-8-sig") as source:
+                libraries = vdf.parse(source)["libraryfolders"]
+            for library in libraries.values():
+                if not isinstance(library, dict) or "979110" not in library.get("apps", {}):
                     continue
-
-                self.locateSpacehaven(str(Path(value["path"], "steamapps", "common", "SpaceHaven", game_executable)))
-                return
+                executable = Path(library["path"], "steamapps", "common", "SpaceHaven", game_executable)
+                if executable.exists() and self.locateSpacehaven(executable):
+                    return
 
         except FileNotFoundError:
             ui.log.log("Unable to locate Steam registry keys or library paths, aborting Steam autolocator")
@@ -370,31 +393,41 @@ class Window(Frame):
         # Brute force method
         for location in POSSIBLE_SPACEHAVEN_LOCATIONS:
             try:
-                location = os.path.abspath(location)
-                if os.path.exists(location):
-                    self.locateSpacehaven(location)
+                location = ui.paths.loader_directory() / Path(location).expanduser()
+                if location.exists() and self.locateSpacehaven(location):
                     return
             except Exception as ex:
                 ui.log.log("Unable to check possible Space Haven location {}: {}".format(location, ex))
         ui.log.log("Unable to autolocate installation. User will need to pick manually.")
 
     def locateSpacehaven(self, path):
-        if path is None:
-            return
+        if not path:
+            return False
+        path = str(Path(path).resolve())
+        game_jar = runtime_manager.game_directory(path) / "spacehaven.jar"
+        backup = game_jar.with_suffix(".jar.vanilla")
+        if not game_jar.is_file():
+            if not backup.is_file() or not messagebox.askyesno(
+                "Legacy game recovery",
+                f"Restore missing {game_jar.name} from the validated legacy backup?\n\n{backup}",
+            ):
+                self.showModError("Space Haven JAR missing", str(game_jar))
+                return False
+            try:
+                with launch_session.installation_lock(path):
+                    loader.load.restore_missing_legacy_jar(game_jar)
+            except Exception as exc:
+                self.showModError("Legacy recovery failed", str(exc))
+                return False
 
-        if path.endswith(".app"):
+        if path.lower().endswith(".app"):
             self.gamePath = path
             self.jarPath = path + "/Contents/Resources/spacehaven.jar"
             self.modPath = path + "/Contents/Resources/mods"
 
-        elif path.endswith(".jar"):
-            self.gamePath = path
-            self.jarPath = path
-            self.modPath = os.path.join(os.path.dirname(path), "mods")
-
         else:
             self.gamePath = path
-            self.jarPath = os.path.join(os.path.dirname(path), "spacehaven.jar")
+            self.jarPath = str(game_jar)
             self.modPath = os.path.join(os.path.dirname(path), "mods")
 
         workshop_path = ui.paths.resolve_workshop_path(self.gamePath)
@@ -415,12 +448,16 @@ class Window(Frame):
 
         self.save_previous_spacehaven_path(path)
 
-        self.checkForLoadedMods()
-
         self.gameInfo = GameInfo(self.jarPath)
 
         self.spacehavenText.delete(0, "end")
         self.spacehavenText.insert(0, self.gamePath)
+
+        saved_mode = runtime_manager.get_mode(self.gamePath)
+        for text, mode in self.runtime_options.items():
+            if mode == saved_mode:
+                self.runtime_choice.set(text)
+                break
 
         self.modPath = [
             self.modPath
@@ -433,6 +470,7 @@ class Window(Frame):
 
         DatabaseHandler(self.modPath, self.gameInfo)
         self.refreshModList()
+        return True
 
     def modloader_state_file(self, filename):
         return loader.load.modloader_state_file(self.jarPath, filename)
@@ -441,7 +479,7 @@ class Window(Frame):
         # Stored next to the executable so we can read it before knowing where
         # Space Haven lives. Moving this file into <SpaceHaven>/mods/modloader
         # would break the bootstrap on the next launch.
-        targetPath = loader.load.PREVIOUS_GAME_PATH_FILENAME
+        targetPath = ui.paths.loader_directory() / loader.load.PREVIOUS_GAME_PATH_FILENAME
         try:
             _write_text_file(targetPath, path)
             ui.log.log("Saved previous Space Haven path to {}".format(os.path.abspath(targetPath)))
@@ -449,44 +487,24 @@ class Window(Frame):
             ui.log.log("Unable to save previous Space Haven path to {}: {}".format(os.path.abspath(targetPath), ex))
 
     def load_extra_mod_paths(self):
-        statePath = self.modloader_state_file(loader.load.EXTRA_MODS_PATH_FILENAME)
-        candidates = [statePath, loader.load.EXTRA_MODS_PATH_FILENAME]
-        seen = set()
-
-        for path in candidates:
-            if path in seen:
-                continue
-            seen.add(path)
-            try:
-                extraPaths = _read_text_file(path)
-            except FileNotFoundError:
-                continue
-            except Exception as ex:
-                ui.log.log("Unable to read extra mod paths from {}: {}".format(path, ex))
-                continue
-
-            for mod_path in extraPaths.split("\n"):
-                mod_path = mod_path.strip()
-                if mod_path:
-                    self.modPath.append(mod_path)
-
-            if path == loader.load.EXTRA_MODS_PATH_FILENAME:
-                self.migrate_extra_mod_paths(path, statePath, extraPaths)
-            break
-
-    def migrate_extra_mod_paths(self, legacyPath, statePath, extraPaths):
+        state_path = self.modloader_state_file(loader.load.EXTRA_MODS_PATH_FILENAME)
         try:
-            _write_text_file(statePath, extraPaths)
-            os.unlink(legacyPath)
-            ui.log.log("Migrated extra mod paths to {}".format(statePath))
-        except Exception as ex:
-            ui.log.log("Unable to migrate extra mod paths to {}: {}".format(statePath, ex))
-
-    def checkForLoadedMods(self):
-        if self.jarPath is None:
+            extra_paths = _read_text_file(state_path)
+        except FileNotFoundError:
+            if (ui.paths.loader_directory() / loader.load.EXTRA_MODS_PATH_FILENAME).is_file():
+                ui.log.log(f"Legacy extra mod roots require per-install selection. Copy the intended absolute paths to {state_path}.")
             return
-
-        loader.load.unload(self.jarPath)
+        except OSError as exc:
+            ui.log.log(f"Unable to read extra mod paths from {state_path}: {exc}")
+            return
+        for value in extra_paths.splitlines():
+            if not value.strip():
+                continue
+            candidate = Path(value.strip()).expanduser()
+            if candidate.is_absolute():
+                self.modPath.append(str(candidate))
+            else:
+                ui.log.log(f"Skipping relative extra mod root: {value}")
 
     def browseForSpacehaven(self):
         import platform
@@ -805,6 +823,77 @@ class Window(Frame):
     def openModFolder(self):
         ui.launcher.open(self.modPath[0])
 
+    def selected_runtime_mode(self):
+        return self.runtime_options.get(self.runtime_choice.get(), runtime_manager.MODE_ORIGINAL)
+
+    def on_runtime_selected(self, _event=None):
+        if not self.gamePath:
+            return
+        try:
+            runtime_manager.set_mode(self.gamePath, self.selected_runtime_mode())
+            ui.log.log("Selected Java runtime mode: " + self.selected_runtime_mode())
+        except Exception as exc:
+            messagebox.showerror("Java runtime selection", str(exc))
+
+    def _selected_java_major(self):
+        return {runtime_manager.MODE_TEMURIN: 27, runtime_manager.MODE_TEMURIN25: 25}.get(self.selected_runtime_mode())
+
+    def install_selected_java(self):
+        if not self.gamePath:
+            messagebox.showerror("Java runtime", "Find Space Haven first.")
+            return
+        major = self._selected_java_major()
+        if major is None:
+            messagebox.showinfo("Java runtime", "Select Temurin 25 or 27 first. The original bundled JVM needs no installation.")
+            return
+        if self.background_thread is not None:
+            return
+        if not messagebox.askyesno(
+            f"Install Temurin {major} (experimental)",
+            f"Install Temurin {major} from Eclipse Adoptium and AspectJ 1.9.27 from Maven Central?\n\n"
+            "Both downloads are checked against SHA-256 and stored under mods/modloader.",
+        ):
+            return
+
+        path = self.gamePath
+
+        def task():
+            from ui import aspectj_runtime
+            with launch_session.installation_lock(path):
+                java = runtime_manager.install_temurin(path, major=major, log=ui.log.log)
+                weaver = aspectj_runtime.install_aspectj(path, log=ui.log.log)
+                ui.log.log(f"Java {major} ready: {java}")
+                ui.log.log(f"AspectJ {aspectj_runtime.VERSION} ready: {weaver}")
+            return f"Temurin {major} and AspectJ {aspectj_runtime.VERSION} installed."
+
+        self.start_background_task(task, f"Installing Java {major}")
+
+    def test_selected_runtime(self):
+        if not self.gamePath:
+            messagebox.showerror("Test JVM", "Find Space Haven first.")
+            return
+        path = self.gamePath
+        mode = self.selected_runtime_mode()
+        self.start_background_task(lambda: runtime_manager.preflight(path, mode), "Checking JVM and AspectJ")
+
+    def export_launch_logs(self):
+        """Export only launch logs, with user confirmation about personal paths."""
+        if not self.gamePath:
+            messagebox.showerror("Export logs", "Find Space Haven first.")
+            return
+        if not messagebox.askyesno("Export diagnostics", "Logs can contain Windows usernames, installation paths and mod names.\n\nCreate a local ZIP to inspect before sharing?"):
+            return
+        try:
+            from ui import diagnostics
+            target = filedialog.asksaveasfilename(title="Save Space Haven diagnostics", defaultextension=".zip", filetypes=[("ZIP archive", "*.zip")], initialfile="SHL-diagnostics.zip")
+            if not target:
+                return
+            files = diagnostics.export_logs(self.gamePath, target)
+            messagebox.showinfo("Diagnostics exported", "Saved {} log files to:\n{}\n\nReview the contents before sharing.".format(files, target))
+        except Exception as exc:
+            ui.log.log("Diagnostics export failed: {}".format(exc))
+            messagebox.showerror("Diagnostics export failed", str(exc))
+
     def set_ui_state(self, state, message):
         self.launchButton.config(state=state, text=message)
         self.modEnableDisable.config(state=state)
@@ -817,6 +906,12 @@ class Window(Frame):
         self.extractButton.config(state=state)
         self.annotateButton.config(state=state)
         self.quitButton.config(state=state)
+        self.installJava27Button.config(state=state)
+        self.testRuntimeButton.config(state=state)
+        self.exportLogsButton.config(state=state)
+        self.classpathButton.config(state=state)
+        self.modList.config(state=state)
+        self.runtime_selector.config(state="readonly" if state == NORMAL else "disabled")
 
     can_quit = True
 
@@ -844,13 +939,18 @@ class Window(Frame):
 
         ui.log.logger.backgroundState = message
 
+        self.background_error = None
+        self.background_result = None
         self.background_finished = False
         # for counting the iterations in update_background_state
         self.background_counter = 0
 
         def _wrapper():
             try:
-                task()
+                self.background_result = task()
+            except Exception as exc:
+                self.background_error = str(exc)
+                ui.log.log(traceback.format_exc())
             finally:
                 self.background_finished = True
 
@@ -868,6 +968,10 @@ class Window(Frame):
             self.background_thread = None
             self.enable_UI(self.launchButton_default_text)
             self.check_quick_launch()
+            if self.background_error:
+                messagebox.showerror("Mod Loader task failed", self.background_error)
+            elif self.background_result:
+                messagebox.showinfo("Mod Loader", self.background_result)
         else:
             self.after(self.background_refresh_delay, self.update_background_state)
 
@@ -883,126 +987,78 @@ class Window(Frame):
     def annotate(self):
         corePath = self._core_extract_path()
         ui.log.log(f"Annotating and putting files in {corePath}")
-        try:
-            annotate(corePath)
-        except Exception as e:
-            ui.log.log("  Error during annotation!")
-            ui.log.log(repr(e))
+        annotate(corePath)
 
         ui.launcher.open(os.path.join(corePath, "library"))
 
     def mods_enabled(self):
         return DatabaseHandler.getActiveMods()
 
-    def current_mods_signature(self):
-        import hashlib
-
-        mods_signature = ["spacehaven", self.gameInfo.version]
-        # mods are supposedly ordered alphabetically
-        for mod in self.mods_enabled():
-            mods_signature.append(mod.name)
-            mods_signature.append(mod.version or "VERSION_UNKNOWN")
-
-        text_sig = "__".join(mods_signature).lower()
-        md5 = hashlib.md5(text_sig.encode("utf-8")).hexdigest()
-        return md5
-
-    def quick_launch_available(self):
-        mods_sig = self.current_mods_signature()
-        return os.path.isfile(loader.load.quick_launch_filename(mods_sig, self.jarPath))
-
     def check_quick_launch(self):
         has_cache = self.jarPath and loader.load.has_quick_launch_cache(self.jarPath)
-        if not self.mods_enabled():
-            self.launchButton_default_text = "LAUNCH ORIGINAL GAME"
-        elif self.quick_launch_available():
-            self.launchButton_default_text = "QUICKLAUNCH!"
-        else:
-            self.launchButton_default_text = "LAUNCH!"
+        self.launchButton_default_text = "LAUNCH WITHOUT MODS" if self.jarPath and not self.mods_enabled() else "LAUNCH!"
         self.quickLaunchClear.config(state=NORMAL if has_cache else DISABLED)
         self.launchButton.config(text=self.launchButton_default_text)
 
     def clear_quick_launch(self):
         if not self.jarPath:
             return
-        if not messagebox.askyesno("Clear QuickLaunch cache", "Delete all cached QuickLaunch files for this Mod Loader install?"):
+        if not messagebox.askyesno("Clear QuickLaunch cache", "Delete cached QuickLaunch files for this installation?"):
             return
-        removed = loader.load.clear_quick_launch_cache(self.jarPath)
-        ui.log.log("Cleared {} QuickLaunch cache file(s).".format(removed))
-        self.check_quick_launch()
+
+        def clear():
+            with launch_session.installation_lock(self.gamePath):
+                removed = loader.load.clear_quick_launch_cache(self.jarPath)
+                ui.log.log(f"Cleared {removed} QuickLaunch file(s).")
+
+        self.start_background_task(clear, "Clearing QuickLaunch")
+
+    def show_classpath_diagnostics(self):
+        if not self.jarPath:
+            return
+        mode, game, jar, mods = self.selected_runtime_mode(), self.gamePath, self.jarPath, self.mods_enabled()
+
+        def diagnose():
+            java, major = runtime_manager.selected_java(game, mode)
+            lines = []
+            launch_config.build(game, jar, mods, java, major, report=lines.append)
+            return "\n\n".join(lines)
+
+        self.start_background_task(diagnose, "Inspecting classpath")
 
     def launch_wrapper(self):
-        if self.config_dirty:
-            answer = messagebox.askyesnocancel(
-                "Unsaved configuration changes",
-                "You have unsaved configuration changes. Save before launching?\n\nYes: save and launch\nNo: launch without saving\nCancel: stay here",
-            )
-            if answer is None:
-                return
-            if answer and not self.save_current_config():
-                return
-            if answer is False:
-                self.launch_without_saving_config = True
+        if not self.jarPath or not self.confirm_unsaved_config("launching"):
+            return
+        game_executable = self.gamePath
+        jar = Path(self.jarPath)
+        mods = self.mods_enabled()
+        mode = self.selected_runtime_mode()
+        version = self.gameInfo.version
 
-        try:
-            DatabaseHandler.getInstance().reconcile_jarmod_classpath()
-        except Exception as ex:
-            ui.log.log("Failed to run JAR classPath cleanup before launch: {}".format(ex))
+        def launch():
+            with launch_session.installation_lock(game_executable) as process_file:
+                java, major = runtime_manager.selected_java(game_executable, mode)
+                java_version = runtime_manager.verify_java(java, major)
+                backup = jar.with_suffix(".jar.vanilla")
+                if backup.exists():
+                    with jar.open("rb") as live, backup.open("rb") as legacy:
+                        if hashlib.file_digest(live, "sha256").digest() != hashlib.file_digest(legacy, "sha256").digest():
+                            raise RuntimeError(
+                                f"{jar.name} differs from its legacy .vanilla backup. Verify the installed game and retain the backup for review."
+                            )
+                # Validate classpath and launch options before building the cache.
+                launch_config.build(game_executable, jar, mods, java, major)
+                game_jar = jar
+                if mods:
+                    def fingerprint():
+                        return mod_fingerprint(mods, version, jar)
 
-        if not self.mods_enabled():
-            task = self.launch_vanilla
-            message = "Launching original game"
-        elif self.quick_launch_available():
-            task = self.quick_launch
-            message = "Quicklaunching"
-        else:
-            task = self.patchAndLaunch
-            message = "Launching"
+                    game_jar = loader.load.prepare_game_jar(jar, mods, fingerprint(), fingerprint)
+                else:
+                    game_jar = loader.load.prepare_game_jar(jar, [], None)
+                ui.launcher.run(game_executable, game_jar, mods, java, major, java_version, process_file)
 
-        self.start_background_task(task, message)
-
-    def launch_vanilla(self):
-        ui.launcher.launchAndWait(self.gamePath)
-
-    def quick_launch(self):
-        try:
-            loader.load.quickload(self.jarPath, self.current_mods_signature())
-            ui.launcher.launchAndWait(self.gamePath)
-            # FIXME this will crash if the game restarts by itself (changing language)
-            loader.load.unload(self.jarPath)
-        except:
-            import traceback
-
-            traceback.print_exc()
-            messagebox.showerror("Error during quick launch", traceback.format_exc(3))
-
-    def patchAndLaunch(self):
-        activeMods = DatabaseHandler.getActiveMods()
-
-        # JAR mods are injected into the game through config.json's classPath
-        # (handled in JarMod.enable() during mod discovery), but they can ALSO
-        # ship traditional XML modifications under library/ and patches/ just
-        # like any XML mod. Pass every active mod through the XML pipeline so
-        # those modifications are merged in too.
-
-        if getattr(self, "launch_without_saving_config", False):
-            ui.log.log("Skipping config autosave because user chose to launch without saving.")
-            self.launch_without_saving_config = False
-        else:
-            # If any active mods have variables, save them.
-            for mod in activeMods:
-                if mod.variables:
-                    mod.saveConfig()
-
-        try:
-            loader.load.load(self.jarPath, activeMods, self.current_mods_signature())
-            ui.launcher.launchAndWait(self.gamePath)
-            loader.load.unload(self.jarPath)
-        except:
-            import traceback
-
-            traceback.print_exc()
-            messagebox.showerror("Error loading mods", traceback.format_exc(3))
+        self.start_background_task(launch, "Preparing Space Haven")
 
     def quit(self):
         if not self.confirm_unsaved_config("quitting"):
@@ -1037,27 +1093,21 @@ if __name__ == "__main__":
     root.minsize(800, 600)
     root.report_callback_exception = handleException
 
-    # HACK: Button labels don't appear until the window is resized with py2app
+    # A resize makes button labels appear in py2app builds.
     def fixNoButtonLabelsBug():
         root.geometry("{}x{}".format(win_w, win_h + 1))
 
     root.resizable(True, True)
 
     app = Window(root)
-    root.update()
-    root.update_idletasks()
-    root.after(0, fixNoButtonLabelsBug)
     root.protocol("WM_DELETE_WINDOW", app.quit)
-    icon = None
-    try:
-        icon = PhotoImage(file="spacehaven-modloader.png")
-    except:
-        pass
-    if icon is None:
+    root.after(0, fixNoButtonLabelsBug)
+    app_dir = ui.paths.loader_directory()
+    for path in (app_dir / "spacehaven-modloader.png", app_dir / "_internal" / "spacehaven-modloader.png"):
         try:
-            icon = PhotoImage(file="./_internal/spacehaven-modloader.png")
-        except:
-            pass
-    if icon is not None:
+            icon = PhotoImage(file=str(path))
+        except TclError:
+            continue
         root.iconphoto(True, icon)
+        break
     root.mainloop()

@@ -1,8 +1,15 @@
 import os
 from pathlib import Path
+import sys
 
 
 SPACE_HAVEN_APP_ID = "979110"
+
+
+def loader_directory():
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parents[1]
 
 
 def normalize_path(path):

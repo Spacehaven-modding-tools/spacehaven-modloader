@@ -20,7 +20,7 @@ def AttributeSet(patchArgs):
         raise SyntaxError("Invalid patch operation, <value> is not defined.")
 
     for element in matchingElements:
-        element.set(attribute, value.text)
+        element.set(attribute, value.text or "")
 
 
 def AttributeAdd(patchArgs):
@@ -40,7 +40,7 @@ def AttributeAdd(patchArgs):
     for element in matchingElements:
         if element.get(attribute, None) is not None:
             raise KeyError(f"Attribute '{attribute}' already exists")
-        element.set(attribute, value.text)
+        element.set(attribute, value.text or "")
 
 
 def AttributeRemove(patchArgs):
@@ -74,8 +74,9 @@ def AttributeMath(patchArgs):
     opType = value.get("opType", None)
     valueFloat = float(value.text)
     for element in matchingElements:
-        startVal = float(element.get(attribute, 0))
-        isFloat = "." in element.get(attribute, 0)
+        previous = element.get(attribute, "0")
+        startVal = float(previous)
+        isFloat = "." in previous
         if opType == "add":
             newVal = startVal + valueFloat
         elif opType == "subtract":
@@ -121,7 +122,7 @@ def NodeAddFirst(patchArgs):
 
     for parent in matchingElements:
         for node in reversed(value):
-            parent.insert(1, copy.deepcopy(node))
+            parent.insert(0, copy.deepcopy(node))
 
 
 def NodeInsert(patchArgs):
@@ -263,7 +264,7 @@ def doPatchType(coreLib, mod: dict, patch: lxml.etree._Element, location: str):
         if len(value.getchildren()) > 0:
             strValue = "".join("".join(lxml.etree.tostring(child, encoding="unicode")) for child in value)
         else:
-            strValue = value.text
+            strValue = value.text or ""
         strValue = strValue.replace("\n", "").replace("\t", " ")
         strValue = re.sub(r"\s+", " ", strValue)
         strValue = (strValue[:150] + "...") if len(strValue) > 150 else strValue
@@ -289,7 +290,7 @@ def doPatchType(coreLib, mod: dict, patch: lxml.etree._Element, location: str):
 
         # Replace variables defined in config section of 'info.xml' file with its corresponding value
         if mod.variables:
-            if value is not None:
+            if value is not None and value.text is not None:
                 for var in mod.variables:
                     value.text = value.text.replace(str(var.name), str(var.value))
 
